@@ -1,10 +1,10 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { CapsuleCollider, Physics, RigidBody, type RapierRigidBody } from "@react-three/rapier";
 import { Ecctrl, type EcctrlHandle } from "ecctrl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { combatAudio } from "../game/audio";
-import { input } from "../game/input";
+import { analogueMoveSpeed, cameraRelativeDirection, input } from "../game/input";
 import { useGameStore } from "../game/store";
 import type { AnimationState, AttackDefinition, CombatAction } from "../game/types";
 import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, phaseAt } from "../game/weapon";
@@ -16,6 +16,32 @@ const PLAYER_START = new THREE.Vector3(0, 1, 5.5);
 const ENEMY_START = new THREE.Vector3(0, 0.95, -4.5);
 
 type EnemyMode = "watching" | "approach" | "windup" | "attack" | "recover" | "stagger" | "parried" | "backstabbed" | "dead";
+
+function AnalogueSpeedLimiter({
+  controller,
+  magnitude,
+  sprinting,
+  enabled,
+}: {
+  controller: RefObject<EcctrlHandle | null>;
+  magnitude: RefObject<number>;
+  sprinting: RefObject<boolean>;
+  enabled: RefObject<boolean>;
+}) {
+  // Ecctrl deliberately normalises joystick input. This extension runs after
+  // the controller frame and restores analogue magnitude to planar speed.
+  useFrame(() => {
+    const handle = controller.current;
+    if (!handle || !enabled.current || magnitude.current <= 0.01) return;
+    const velocity = handle.body.linvel();
+    const planarSpeed = Math.hypot(velocity.x, velocity.z);
+    const maximum = analogueMoveSpeed(magnitude.current, sprinting.current);
+    if (planarSpeed <= maximum || planarSpeed <= 0.001) return;
+    const scale = maximum / planarSpeed;
+    handle.body.setLinvel({ x: velocity.x * scale, y: velocity.y, z: velocity.z * scale }, true);
+  });
+  return null;
+}
 
 function Battle() {
   const player = useRef<EcctrlHandle>(null);
@@ -29,7 +55,7 @@ function Battle() {
   const playerActionTime = useRef(0);
   const playerAttack = useRef<AttackDefinition | null>(null);
   const playerAttackHit = useRef(false);
-  const comboQueued = useRef(false);
+  const comboQueued = useRef<"light" | "heavy" | null>(null);
   const healedThisAction = useRef(false);
   const playerHealth = useRef<number>(COMBAT_TUNING.maxHealth);
   const playerStamina = useRef<number>(COMBAT_TUNING.maxStamina);
@@ -39,6 +65,11 @@ function Battle() {
   const lockedOn = useRef(false);
   const dodgeHold = useRef(0);
   const dodgeDirection = useRef(new THREE.Vector3(0, 0, -1));
+  const moveMagnitudeRef = useRef(0);
+  const sprintingRef = useRef(false);
+  const movementAllowedRef = useRef(true);
+  const wasGrounded = useRef(true);
+  const landingTimer = useRef(0);
 
   const enemyMode = useRef<EnemyMode>("watching");
   const enemyModeTime = useRef(0);
@@ -99,11 +130,11 @@ function Battle() {
   const startPlayerAction = useCallback((action: CombatAction, animation: AnimationState) => {
     playerAction.current = action;
     playerActionTime.current = 0;
-    playerAttack.current = action === "light1" || action === "light2" || action === "heavy" || action === "riposte" || action === "backstab"
+    playerAttack.current = action === "light1" || action === "light2" || action === "light3" || action === "heavy" || action === "heavy2" || action === "riposte" || action === "backstab"
       ? STRAIGHT_SWORD.attacks[action]
       : null;
     playerAttackHit.current = false;
-    comboQueued.current = false;
+    comboQueued.current = null;
     healedThisAction.current = false;
     setAnim("player", animation);
   }, [setAnim]);
@@ -206,12 +237,18 @@ function Battle() {
     enemyDecision.current -= delta;
     staminaCooldown.current -= delta;
     messageTimer.current -= delta;
+    landingTimer.current = Math.max(0, landingTimer.current - delta);
     if (messageTimer.current <= 0) message.current = "";
 
     const moveMagnitude = Math.min(1, Math.hypot(input.movement.x, input.movement.y));
+    moveMagnitudeRef.current = moveMagnitude;
+    if (!wasGrounded.current && handle.isOnGround) landingTimer.current = 0.28;
+    wasGrounded.current = handle.isOnGround;
     if (input.pressed("dodge")) dodgeHold.current = 0;
     if (input.held("dodge")) dodgeHold.current += delta;
     const sprinting = input.held("dodge") && dodgeHold.current > 0.22 && moveMagnitude > 0.15 && playerAction.current === "idle";
+    sprintingRef.current = sprinting;
+    const jumpStarted = input.pressed("jump") && handle.isOnGround && playerAction.current === "idle";
 
     if (input.pressed("lockOn") && enemyHealth.current > 0) {
       lockedOn.current = !lockedOn.current;
@@ -229,6 +266,7 @@ function Battle() {
       combatAudio.play("heal");
     } else if (canStartAction && input.pressed("parry") && equipped.current && spendStamina(COMBAT_TUNING.parryCost)) {
       startPlayerAction("parry", "PARRY");
+      announce("SWORD PARRY", 0.55);
     } else if (canStartAction && input.pressed("heavy") && equipped.current && spendStamina(STRAIGHT_SWORD.attacks.heavy.stamina)) {
       startPlayerAction("heavy", "HEAVY");
       combatAudio.play("swing");
@@ -275,6 +313,7 @@ function Battle() {
       }
     } else if (playerAction.current === "idle" && input.held("guard") && equipped.current) {
       startPlayerAction("guard", "GUARD");
+      announce("GUARDING", 0.55);
     } else if (playerAction.current === "guard" && !input.held("guard")) {
       finishPlayerAction();
     }
@@ -283,14 +322,9 @@ function Battle() {
       const action = moveMagnitude > 0.15 ? "roll" : "backstep";
       startPlayerAction(action, action === "roll" ? "ROLL" : "BACKSTEP");
       combatAudio.play("roll");
-      const sin = Math.sin(cameraYaw.current);
-      const cos = Math.cos(cameraYaw.current);
       if (moveMagnitude > 0.15) {
-        dodgeDirection.current.set(
-          input.movement.x * cos - input.movement.y * sin,
-          0,
-          input.movement.x * sin + input.movement.y * cos,
-        ).normalize();
+        const direction = cameraRelativeDirection(input.movement, cameraYaw.current);
+        dodgeDirection.current.set(direction.x, direction.y, direction.z).normalize();
       } else {
         dodgeDirection.current.copy(handle.bodyZAxis).multiplyScalar(-1).setY(0).normalize();
       }
@@ -300,7 +334,11 @@ function Battle() {
     const attack = playerAttack.current;
     if (attack) {
       const phase = phaseAt(playerActionTime.current, attack);
-      if (input.pressed("light") && (attack.id === "light1" || attack.id === "light2") && phase === "recovery") comboQueued.current = true;
+      const comboInputOpen = phase !== "none" && playerActionTime.current >= attack.windup * 0.65;
+      if (comboInputOpen) {
+        if (input.pressed("light") && (attack.id === "light1" || attack.id === "light2")) comboQueued.current = "light";
+        if (input.pressed("heavy") && attack.id === "heavy") comboQueued.current = "heavy";
+      }
       if (phase === "active" && !playerAttackHit.current) {
         playerAttackHit.current = true;
         const distance = tmp.current.toEnemy.set(
@@ -314,8 +352,15 @@ function Battle() {
         }
       }
       if (phase === "none") {
-        if (comboQueued.current && attack.id === "light1" && spendStamina(STRAIGHT_SWORD.attacks.light2.stamina)) {
-          startPlayerAction("light2", "LIGHT_2");
+        const nextAttack = comboQueued.current === "light" && attack.id === "light1"
+          ? STRAIGHT_SWORD.attacks.light2
+          : comboQueued.current === "light" && attack.id === "light2"
+            ? STRAIGHT_SWORD.attacks.light3
+            : comboQueued.current === "heavy" && attack.id === "heavy"
+              ? STRAIGHT_SWORD.attacks.heavy2
+              : null;
+        if (nextAttack && spendStamina(nextAttack.stamina)) {
+          startPlayerAction(nextAttack.id, nextAttack.animation);
           combatAudio.play("swing");
         } else finishPlayerAction();
       }
@@ -339,11 +384,12 @@ function Battle() {
     }
 
     const movementAllowed = playerAction.current === "idle" || playerAction.current === "guard";
+    movementAllowedRef.current = movementAllowed;
     const movementScale = playerAction.current === "guard" ? 0.42 : 1;
     handle.setMovement({
       joystick: { x: input.movement.x * movementScale, y: input.movement.y * movementScale },
       run: sprinting,
-      jump: false,
+      jump: input.held("jump") && playerAction.current === "idle",
     });
     if (!movementAllowed) handle.setMovement({ joystick: { x: 0, y: 0 }, run: false, jump: false });
 
@@ -360,7 +406,21 @@ function Battle() {
     }
 
     if (playerAction.current === "idle") {
-      const locomotion = sprinting ? "SPRINT" : moveMagnitude > 0.72 ? "RUN" : moveMagnitude > 0.08 ? "WALK" : equipped.current ? "SWORD_IDLE" : "IDLE";
+      const locomotion = !handle.isOnGround
+        ? "JUMP_IDLE"
+        : jumpStarted
+          ? "JUMP_START"
+          : landingTimer.current > 0
+            ? "JUMP_LAND"
+            : sprinting
+              ? "SPRINT"
+              : moveMagnitude > 0.72
+                ? "RUN"
+                : moveMagnitude > 0.08
+                  ? "WALK"
+                  : equipped.current
+                    ? "SWORD_IDLE"
+                    : "IDLE";
       setAnim("player", locomotion);
     }
 
@@ -467,8 +527,8 @@ function Battle() {
         ref={player}
         position={PLAYER_START}
         rotation={[0, Math.PI, 0]}
-        maxWalkVel={1.65}
-        maxRunVel={3.85}
+        maxWalkVel={3.6}
+        maxRunVel={5.5}
         accDeltaTime={0.16}
         decDeltaTime={0.13}
         rejectVelFactor={0.92}
@@ -479,13 +539,19 @@ function Battle() {
         floatHeight={0.18}
         springK={92}
         dampingC={7}
-        jumpVel={0}
+        jumpVel={5.2}
         colliders={false}
         name="player"
       >
         <CapsuleCollider args={[0.42, 0.3]} name="player-collider" />
         <AnimatedFighter animation={playerAnimation} equipped={equipped.current} />
       </Ecctrl>
+      <AnalogueSpeedLimiter
+        controller={player}
+        magnitude={moveMagnitudeRef}
+        sprinting={sprintingRef}
+        enabled={movementAllowedRef}
+      />
       <RigidBody ref={enemyBody} type="kinematicPosition" colliders={false} position={ENEMY_START} name="arena-knight">
         <CapsuleCollider args={[0.42, 0.32]} />
         <AnimatedFighter animation={enemyAnimation} equipped enemy />
@@ -497,22 +563,21 @@ function Battle() {
 export function CombatScene() {
   return (
     <>
-      <color attach="background" args={["#090a0b"]} />
-      <fog attach="fog" args={["#090a0b", 13, 34]} />
-      <ambientLight intensity={0.22} color="#78849a" />
-      <hemisphereLight intensity={0.4} color="#9aa6bd" groundColor="#17130f" />
+      <color attach="background" args={["#dceff4"]} />
+      <fog attach="fog" args={["#dceff4", 20, 46]} />
+      <ambientLight intensity={0.9} color="#ffffff" />
+      <hemisphereLight intensity={1.25} color="#f8fdff" groundColor="#b8c5c2" />
       <directionalLight
         castShadow
         position={[7, 12, 6]}
-        intensity={2.4}
-        color="#f0d4a0"
+        intensity={2.8}
+        color="#fff8e8"
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-16}
         shadow-camera-right={16}
         shadow-camera-top={16}
         shadow-camera-bottom={-16}
       />
-      <pointLight position={[-8, 2.5, -7]} intensity={18} distance={10} color="#8c331b" />
       <Physics gravity={[0, -9.81, 0]} timeStep="vary">
         <Arena />
         <Battle />

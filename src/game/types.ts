@@ -4,7 +4,9 @@ export type CombatAction =
   | "idle"
   | "light1"
   | "light2"
+  | "light3"
   | "heavy"
+  | "heavy2"
   | "roll"
   | "backstep"
   | "guard"
@@ -29,7 +31,9 @@ export type AnimationState =
   | "SWORD_IDLE"
   | "LIGHT_1"
   | "LIGHT_2"
+  | "LIGHT_3"
   | "HEAVY"
+  | "HEAVY_2"
   | "ROLL"
   | "BACKSTEP"
   | "GUARD"
@@ -45,7 +49,7 @@ export type AnimationState =
   | "DEATH";
 
 export type AttackDefinition = {
-  id: "light1" | "light2" | "heavy" | "riposte" | "backstab";
+  id: "light1" | "light2" | "light3" | "heavy" | "heavy2" | "riposte" | "backstab";
   animation: AnimationState;
   damage: number;
   stamina: number;

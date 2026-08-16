@@ -74,6 +74,7 @@ button { color: inherit; font: inherit; }
 .action-button.guard { left: 0; top: 38px; }.action-button.parry { left: 21px; top: 100px; }
 .action-button.lock { left: 72px; top: 63px; width: 48px; height: 48px; }
 .action-button.heal { right: 0; top: 121px; width: 44px; height: 44px; }.action-button.equip { right: 101px; top: 0; width: 43px; height: 43px; }
+.action-button.jump { left: 88px; top: 150px; width: 43px; height: 43px; }
 
 @media (max-width: 760px) {
   .player-vitals { width: 42vw; min-width: 190px; }
