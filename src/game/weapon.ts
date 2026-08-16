@@ -58,6 +58,19 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       lunge: 1.1,
       hitStop: 0.13,
     },
+    backstab: {
+      id: "backstab",
+      animation: "BACKSTAB",
+      damage: 85,
+      stamina: 0,
+      windup: 0.38,
+      active: 0.12,
+      recovery: 0.86,
+      range: 1.75,
+      arc: 0.45,
+      lunge: 0,
+      hitStop: 0.14,
+    },
   },
 };
 
@@ -95,4 +108,17 @@ export function isRollInvulnerable(elapsed: number) {
 
 export function isParryActive(elapsed: number) {
   return elapsed >= COMBAT_TUNING.parryActiveStart && elapsed <= COMBAT_TUNING.parryActiveEnd;
+}
+
+export function isBackstabPosition(
+  enemyForward: { x: number; z: number },
+  enemyToPlayer: { x: number; z: number },
+  distance: number,
+) {
+  if (distance < 0.25 || distance > STRAIGHT_SWORD.attacks.backstab.range) return false;
+  const forwardLength = Math.hypot(enemyForward.x, enemyForward.z);
+  const playerLength = Math.hypot(enemyToPlayer.x, enemyToPlayer.z);
+  if (forwardLength < 0.001 || playerLength < 0.001) return false;
+  const facingDot = (enemyForward.x * enemyToPlayer.x + enemyForward.z * enemyToPlayer.z) / (forwardLength * playerLength);
+  return facingDot <= -0.6;
 }

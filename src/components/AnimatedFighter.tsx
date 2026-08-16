@@ -23,6 +23,8 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   GUARD: { clip: "Sword_Idle", loop: true, speed: 0.12 },
   PARRY: { clip: "Punch_Cross", speed: 1.1, fade: 0.04 },
   RIPOSTE: { clip: "Sword_Attack_RM", speed: 0.82, fade: 0.04 },
+  BACKSTAB: { clip: "Sword_Attack_RM", speed: 0.58, fade: 0.04 },
+  BACKSTABBED: { clip: "Hit_Chest", speed: 0.48, fade: 0.03 },
   HEAL: { clip: "Spell_Simple_Shoot", speed: 0.72 },
   EQUIP: { clip: "Interact", speed: 1.25 },
   UNEQUIP: { clip: "Interact", speed: 1.25 },

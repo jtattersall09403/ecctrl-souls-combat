@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMBAT_TUNING, STRAIGHT_SWORD, isParryActive, isRollInvulnerable, phaseAt } from "./weapon";
+import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, phaseAt } from "./weapon";
 
 describe("straight sword moveset", () => {
   it("advances through deterministic attack phases", () => {
@@ -22,5 +22,12 @@ describe("straight sword moveset", () => {
     expect(heavy.damage).toBeGreaterThan(light1.damage);
     expect(heavy.stamina).toBeGreaterThan(light1.stamina);
     expect(heavy.windup).toBeGreaterThan(light1.windup);
+  });
+
+  it("recognises a close rear approach and rejects front or distant attacks", () => {
+    const facingNorth = { x: 0, z: 1 };
+    expect(isBackstabPosition(facingNorth, { x: 0.1, z: -1 }, 1.2)).toBe(true);
+    expect(isBackstabPosition(facingNorth, { x: 0, z: 1 }, 1.2)).toBe(false);
+    expect(isBackstabPosition(facingNorth, { x: 0, z: -1 }, 2.2)).toBe(false);
   });
 });
