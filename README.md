@@ -2,12 +2,18 @@
 
 A compact browser combat sandbox built on [ecctrl](https://github.com/pmndrs/ecctrl), React Three Fiber, Three.js, and Rapier. It is designed to run on desktop browsers, touch devices, and standard Gamepad API controllers including the GameSir X2s Type-C.
 
+## Play
+
+**[Play Ashen Ring in your browser](https://jtattersall09403.github.io/ecctrl-souls-combat/)**
+
+The Pages build is published from `main`. Desktop and mobile browsers load the same URL.
+
 ## Included combat systems
 
 - lock-on camera and unlocked orbit camera
 - stamina-gated attacks, sprinting, blocking, parrying, and dodging
 - roll invulnerability frames, attack windup/active/recovery phases, hit-stop, and camera shake
-- one-handed straight-sword light chain, heavy attack, and parry riposte
+- one-handed straight-sword light chain, heavy attack, parry riposte, and positional backstab
 - guard stability, chip damage, guard break, hit reactions, healing, death, and reset
 - one enemy with spacing, approach, telegraph, active attack, recovery, stagger, parried, and death states
 - equip/unequip state with a data-defined weapon moveset
@@ -16,15 +22,21 @@ A compact browser combat sandbox built on [ecctrl](https://github.com/pmndrs/ecc
 
 ## Controls
 
-| Action | Keyboard / mouse | Nintendo-layout controller |
-| --- | --- | --- |
-| Move / camera | WASD / drag right side | Left stick / right stick |
-| Light / heavy attack | Mouse 1 / R | R / ZR |
-| Guard / parry | Mouse 2 / F or Mouse 3 | L / ZL |
-| Dodge / sprint | Tap / hold Space | Tap / hold B |
-| Lock on | Q | R stick click |
-| Estus | H | X |
-| Equip / unequip | E | D-pad right |
+| Action | Desktop | Mobile touchscreen | Mobile + GameSir X2s |
+| --- | --- | --- | --- |
+| Move | WASD or arrow keys | Left virtual stick | Left stick |
+| Camera | Drag the right side | Drag the right side | Right stick |
+| Light attack | Mouse 1 | R button | R |
+| Heavy attack | R key | ZR button | ZR |
+| Guard | Mouse 2 | L button | L |
+| Parry | F or Mouse 3 | ZL button | ZL |
+| Dodge | Tap Space | Tap B | Tap B |
+| Sprint | Hold Space while moving | Hold B while moving | Hold B while moving |
+| Lock on/off | Q | R3 button | Right-stick click (R3) |
+| Use Estus | H | X button | X |
+| Equip/unequip sword | E | → button | D-pad right |
+| Backstab | Light attack close behind enemy | R close behind enemy | R close behind enemy |
+| Riposte | Light attack after a successful parry | R after a successful parry | R after a successful parry |
 
 Gamepad mappings use standard Gamepad API **physical button positions**. The GameSir X2s Type-C uses Nintendo-style ABXY caps; the bottom face button is displayed as B.
 

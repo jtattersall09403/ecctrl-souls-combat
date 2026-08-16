@@ -156,7 +156,7 @@ export function Hud() {
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
             </dl>
           </div>
-          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Parry during the enemy windup, then light attack at close range.</p>
+          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
         </aside>
       )}
 

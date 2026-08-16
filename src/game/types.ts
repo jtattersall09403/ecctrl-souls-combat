@@ -10,6 +10,7 @@ export type CombatAction =
   | "guard"
   | "parry"
   | "riposte"
+  | "backstab"
   | "heal"
   | "equip"
   | "unequip"
@@ -34,6 +35,8 @@ export type AnimationState =
   | "GUARD"
   | "PARRY"
   | "RIPOSTE"
+  | "BACKSTAB"
+  | "BACKSTABBED"
   | "HEAL"
   | "EQUIP"
   | "UNEQUIP"
@@ -42,7 +45,7 @@ export type AnimationState =
   | "DEATH";
 
 export type AttackDefinition = {
-  id: "light1" | "light2" | "heavy" | "riposte";
+  id: "light1" | "light2" | "heavy" | "riposte" | "backstab";
   animation: AnimationState;
   damage: number;
   stamina: number;

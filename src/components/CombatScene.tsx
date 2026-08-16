@@ -7,7 +7,7 @@ import { combatAudio } from "../game/audio";
 import { input } from "../game/input";
 import { useGameStore } from "../game/store";
 import type { AnimationState, AttackDefinition, CombatAction } from "../game/types";
-import { COMBAT_TUNING, STRAIGHT_SWORD, isParryActive, isRollInvulnerable, phaseAt } from "../game/weapon";
+import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, phaseAt } from "../game/weapon";
 import { AnimatedFighter } from "./AnimatedFighter";
 import { Arena } from "./Arena";
 
@@ -15,7 +15,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const PLAYER_START = new THREE.Vector3(0, 1, 5.5);
 const ENEMY_START = new THREE.Vector3(0, 0.95, -4.5);
 
-type EnemyMode = "watching" | "approach" | "windup" | "attack" | "recover" | "stagger" | "parried" | "dead";
+type EnemyMode = "watching" | "approach" | "windup" | "attack" | "recover" | "stagger" | "parried" | "backstabbed" | "dead";
 
 function Battle() {
   const player = useRef<EcctrlHandle>(null);
@@ -45,6 +45,7 @@ function Battle() {
   const enemyHealth = useRef(150);
   const enemyAttackHit = useRef(false);
   const enemyDecision = useRef(0.7);
+  const enemyYaw = useRef(0);
 
   const cameraYaw = useRef(0);
   const cameraPitch = useRef(0.34);
@@ -56,6 +57,7 @@ function Battle() {
     movement: new THREE.Vector3(),
     desiredCamera: new THREE.Vector3(),
     desiredLook: new THREE.Vector3(),
+    forward: new THREE.Vector3(),
     quaternion: new THREE.Quaternion(),
   });
   const { camera } = useThree();
@@ -97,7 +99,7 @@ function Battle() {
   const startPlayerAction = useCallback((action: CombatAction, animation: AnimationState) => {
     playerAction.current = action;
     playerActionTime.current = 0;
-    playerAttack.current = action === "light1" || action === "light2" || action === "heavy" || action === "riposte"
+    playerAttack.current = action === "light1" || action === "light2" || action === "heavy" || action === "riposte" || action === "backstab"
       ? STRAIGHT_SWORD.attacks[action]
       : null;
     playerAttackHit.current = false;
@@ -113,14 +115,16 @@ function Battle() {
     setAnim("player", equipped.current ? "SWORD_IDLE" : "IDLE");
   }, [setAnim]);
 
-  const damageEnemy = useCallback((damage: number, riposte = false) => {
+  const damageEnemy = useCallback((damage: number, execution: "riposte" | "backstab" | null = null) => {
     enemyHealth.current = Math.max(0, enemyHealth.current - damage);
-    hitStop.current = riposte ? 0.13 : playerAttack.current?.hitStop ?? 0.055;
-    shake.current = riposte ? 0.42 : 0.22;
+    hitStop.current = execution ? playerAttack.current?.hitStop ?? 0.13 : playerAttack.current?.hitStop ?? 0.055;
+    shake.current = execution ? 0.42 : 0.22;
     combatAudio.play(enemyHealth.current <= 0 ? "death" : "hit");
     if (enemyHealth.current <= 0) {
       setEnemyMode("dead", "DEATH");
       announce("ENEMY FELLED", 4);
+    } else if (execution === "backstab") {
+      setEnemyMode("backstabbed", "BACKSTABBED");
     } else {
       setEnemyMode("stagger", "HIT");
     }
@@ -234,9 +238,39 @@ function Battle() {
         0,
         enemyPosition.current.z - playerPos.z,
       ).length() < 2;
-      const attack = riposteAvailable ? STRAIGHT_SWORD.attacks.riposte : STRAIGHT_SWORD.attacks.light1;
+      const enemyToPlayer = tmp.current.flat.set(
+        playerPos.x - enemyPosition.current.x,
+        0,
+        playerPos.z - enemyPosition.current.z,
+      );
+      const backstabAvailable = !riposteAvailable
+        && (enemyMode.current === "watching" || enemyMode.current === "approach" || enemyMode.current === "windup" || enemyMode.current === "recover")
+        && isBackstabPosition(
+          { x: Math.sin(enemyYaw.current), z: Math.cos(enemyYaw.current) },
+          { x: enemyToPlayer.x, z: enemyToPlayer.z },
+          enemyToPlayer.length(),
+        );
+      const attack = riposteAvailable
+        ? STRAIGHT_SWORD.attacks.riposte
+        : backstabAvailable
+          ? STRAIGHT_SWORD.attacks.backstab
+          : STRAIGHT_SWORD.attacks.light1;
       if (spendStamina(attack.stamina)) {
         startPlayerAction(attack.id, attack.animation);
+        if (attack.id === "backstab") {
+          const forward = tmp.current.forward.set(Math.sin(enemyYaw.current), 0, Math.cos(enemyYaw.current));
+          body.setTranslation({
+            x: enemyPosition.current.x - forward.x * 0.82,
+            y: playerPos.y,
+            z: enemyPosition.current.z - forward.z * 0.82,
+          }, true);
+          body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
+          tmp.current.quaternion.setFromAxisAngle(UP, enemyYaw.current);
+          body.setRotation(tmp.current.quaternion, true);
+          setEnemyMode("backstabbed", "BACKSTABBED");
+          lockedOn.current = true;
+          announce("BACKSTAB", 1.4);
+        }
         combatAudio.play("swing");
       }
     } else if (playerAction.current === "idle" && input.held("guard") && equipped.current) {
@@ -274,7 +308,10 @@ function Battle() {
           0,
           enemyPosition.current.z - playerPos.z,
         ).length();
-        if (distance <= attack.range) damageEnemy(attack.damage, attack.id === "riposte");
+        if (distance <= attack.range) {
+          const execution = attack.id === "riposte" ? "riposte" : attack.id === "backstab" ? "backstab" : null;
+          damageEnemy(attack.damage, execution);
+        }
       }
       if (phase === "none") {
         if (comboQueued.current && attack.id === "light1" && spendStamina(STRAIGHT_SWORD.attacks.light2.stamina)) {
@@ -332,9 +369,20 @@ function Battle() {
     const toPlayer = tmp.current.flat.set(playerPos.x - enemyPosition.current.x, 0, playerPos.z - enemyPosition.current.z);
     const distance = toPlayer.length();
     const direction = distance > 0.001 ? toPlayer.normalize() : toPlayer.set(0, 0, 1);
-    if (enemyMode.current !== "dead") {
-      const yaw = Math.atan2(direction.x, direction.z);
-      tmp.current.quaternion.setFromAxisAngle(UP, yaw);
+    if (enemyMode.current !== "dead" && enemyMode.current !== "backstabbed") {
+      const targetYaw = Math.atan2(direction.x, direction.z);
+      const yawDelta = Math.atan2(Math.sin(targetYaw - enemyYaw.current), Math.cos(targetYaw - enemyYaw.current));
+      const turnRate = enemyMode.current === "approach"
+        ? 2.15
+        : enemyMode.current === "watching"
+          ? 1.35
+          : enemyMode.current === "windup"
+            ? 0.42
+            : enemyMode.current === "recover"
+              ? 0.3
+              : 0;
+      enemyYaw.current += THREE.MathUtils.clamp(yawDelta, -turnRate * delta, turnRate * delta);
+      tmp.current.quaternion.setFromAxisAngle(UP, enemyYaw.current);
       enemyBody.current?.setNextKinematicRotation(tmp.current.quaternion);
     }
 
@@ -363,6 +411,8 @@ function Battle() {
       setEnemyMode("recover", "SWORD_IDLE");
     } else if (enemyMode.current === "parried" && enemyModeTime.current > 1.75) {
       setEnemyMode("recover", "SWORD_IDLE");
+    } else if (enemyMode.current === "backstabbed" && enemyModeTime.current > 1.3 && enemyHealth.current > 0) {
+      setEnemyMode("recover", "SWORD_IDLE");
     }
     enemyBody.current?.setNextKinematicTranslation(enemyPosition.current);
 
@@ -376,7 +426,7 @@ function Battle() {
       cameraPitch.current = THREE.MathUtils.clamp(cameraPitch.current + input.camera.y * delta * 1.7, 0.08, 0.78);
     }
 
-    const camDistance = lockedOn.current ? 6.7 : 5.8;
+    const camDistance = playerAction.current === "backstab" ? 4.7 : lockedOn.current ? 6.7 : 5.8;
     const horizontal = Math.cos(cameraPitch.current) * camDistance;
     tmp.current.desiredCamera.set(
       playerPos.x + Math.sin(cameraYaw.current) * horizontal,
