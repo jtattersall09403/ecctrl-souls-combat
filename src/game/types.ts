@@ -82,4 +82,9 @@ export type GameSnapshot = {
   message: string;
   started: boolean;
   gamepad: string;
+  damagePulse: number;
+  enemyEnabled: boolean;
+  enemyAiEnabled: boolean;
+  showHitboxes: boolean;
+  resetToken: number;
 };
