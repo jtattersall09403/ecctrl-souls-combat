@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, isWeaponHitboxActive, phaseAt } from "./weapon";
+import {
+  COMBAT_TUNING,
+  CRITICAL_ATTACK_DAMAGE,
+  CRITICAL_DAMAGE_MULTIPLIER,
+  STRAIGHT_SWORD,
+  comboEntryTime,
+  comboTransitionTime,
+  getComboSuccessor,
+  hitReactionForAttack,
+  isBackstabPosition,
+  isParryActive,
+  isRollInvulnerable,
+  isWeaponHitboxActive,
+  phaseAt,
+} from "./weapon";
 
 describe("straight sword moveset", () => {
   it("advances through deterministic attack phases", () => {
@@ -38,6 +52,47 @@ describe("straight sword moveset", () => {
     expect(light1.stamina + light2.stamina + light3.stamina).toBe(72);
     expect(light1.stamina + light2.stamina + light3.stamina).toBeLessThanOrEqual(COMBAT_TUNING.maxStamina);
     expect(heavy.stamina + heavy2.stamina).toBe(93);
+  });
+
+  it("branches directly from each active swing into the next chained swing", () => {
+    const { light1, light2, light3 } = STRAIGHT_SWORD.attacks;
+    expect(getComboSuccessor(light1, "light")).toBe(light2);
+    expect(getComboSuccessor(light2, "light")).toBe(light3);
+    expect(getComboSuccessor(light3, "light")).toBeNull();
+
+    const phaseSequence = [
+      phaseAt(0, light1),
+      phaseAt(light1.windup + 0.01, light1),
+      phaseAt(comboEntryTime(light2), light2),
+      phaseAt(comboEntryTime(light3), light3),
+      phaseAt(comboTransitionTime(light3) + 0.01, light3),
+    ];
+    expect(phaseSequence).toEqual(["windup", "active", "active", "active", "recovery"]);
+    expect(phaseAt(comboTransitionTime(light1) - 0.001, light1)).toBe("active");
+    expect(phaseAt(comboEntryTime(light2), light2)).toBe("active");
+  });
+
+  it("supports the heavy successor and rejects unrelated combo inputs", () => {
+    const { light1, heavy, heavy2 } = STRAIGHT_SWORD.attacks;
+    expect(getComboSuccessor(heavy, "heavy")).toBe(heavy2);
+    expect(getComboSuccessor(light1, "heavy")).toBeNull();
+    expect(getComboSuccessor(heavy, "light")).toBeNull();
+    expect(getComboSuccessor(heavy2, "heavy")).toBeNull();
+  });
+
+  it("sets backstab and riposte to exactly twice the opening light damage", () => {
+    const { light1, backstab, riposte } = STRAIGHT_SWORD.attacks;
+    expect(CRITICAL_DAMAGE_MULTIPLIER).toBe(2);
+    expect(CRITICAL_ATTACK_DAMAGE).toBe(light1.damage * CRITICAL_DAMAGE_MULTIPLIER);
+    expect(backstab.damage).toBe(light1.damage * 2);
+    expect(riposte.damage).toBe(light1.damage * 2);
+  });
+
+  it("maps both heavy attacks to Hit_Head's dedicated reaction state", () => {
+    const { light1, heavy, heavy2 } = STRAIGHT_SWORD.attacks;
+    expect(hitReactionForAttack(light1)).toEqual({ action: "hit", animation: "HIT" });
+    expect(hitReactionForAttack(heavy)).toEqual({ action: "hitHeavy", animation: "HIT_HEAVY" });
+    expect(hitReactionForAttack(heavy2)).toEqual({ action: "hitHeavy", animation: "HIT_HEAVY" });
   });
 
   it("recognises a close rear approach and rejects front or distant attacks", () => {

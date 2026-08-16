@@ -35,8 +35,6 @@ button { color: inherit; font: inherit; }
 .enemy-vitals > span { display: block; margin: 0 0 5px 4px; font: 500 13px Cinzel, serif; letter-spacing: .13em; text-shadow: 0 2px 3px #000; }
 .enemy-health span { background: linear-gradient(#7f2d27, #461412); }
 
-.lock-reticle { position: absolute; left: 50%; top: 44%; width: 22px; height: 22px; margin: -11px; border: 1px solid rgba(210,194,159,.9); transform: rotate(45deg); box-shadow: 0 0 8px #000; }
-.lock-reticle span { position: absolute; inset: 6px; border: 1px solid #c8ad79; }
 .combat-message { position: absolute; top: 25%; left: 50%; transform: translateX(-50%); font: 600 14px Cinzel, serif; letter-spacing: .16em; color: #d3c6aa; text-shadow: 0 2px 4px #000; white-space: nowrap; }
 .combat-message.major { top: 40%; font-size: clamp(34px, 7vw, 76px); color: #a53c32; letter-spacing: .2em; text-shadow: 0 3px 12px #000; }
 

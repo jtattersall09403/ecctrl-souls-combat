@@ -1,4 +1,4 @@
-export type HitShakeKind = "enemyHit" | "enemyHeavyHit" | "playerHit" | "playerHeavyHit" | "block" | "parry" | "execution";
+export type HitShakeKind = "enemyHit" | "enemyHeavyHit" | "playerHit" | "playerHeavyHit" | "block" | "parry" | "execution" | "landing";
 
 export type HitShakeProfile = {
   duration: number;
@@ -30,6 +30,7 @@ export const HIT_SHAKE_PROFILES: Record<HitShakeKind, HitShakeProfile> = {
   block: { duration: 0.19, position: 0.04, rotation: 0.008 },
   parry: { duration: 0.22, position: 0.052, rotation: 0.01 },
   execution: { duration: 0.46, position: 0.14, rotation: 0.027 },
+  landing: { duration: 0.14, position: 0.015, rotation: 0.0025 },
 };
 
 export function createHitShake(kind: HitShakeKind, seed: number, side = 0): HitShakeImpulse {

@@ -9,6 +9,19 @@ describe("procedural combat poses", () => {
     expect(Math.abs(second.rightArmY)).toBeGreaterThan(0.4);
   });
 
+  it("matches the procedural pose at both active combo joins", () => {
+    const firstEnd = combatPoseAt("LIGHT_1", 0.46);
+    const secondEntry = combatPoseAt("LIGHT_2", 0.16);
+    const secondEnd = combatPoseAt("LIGHT_2", 0.46);
+    const thirdEntry = combatPoseAt("LIGHT_3", 0.2);
+
+    expect(secondEntry.bodyYaw).toBeCloseTo(firstEnd.bodyYaw, 1);
+    expect(secondEntry.rightArmZ).toBeCloseTo(firstEnd.rightArmZ, 1);
+    expect(thirdEntry.bodyYaw).toBeCloseTo(secondEnd.bodyYaw, 1);
+    expect(thirdEntry.rightArmY).toBeCloseTo(secondEnd.rightArmY, 1);
+    expect(thirdEntry.rightArmZ).toBeCloseTo(secondEnd.rightArmZ, 1);
+  });
+
   it("turns critical attacks into a thrust followed by withdrawal", () => {
     const impact = combatPoseAt("BACKSTAB", 0.62);
     const withdrawal = combatPoseAt("BACKSTAB", 1.18);
