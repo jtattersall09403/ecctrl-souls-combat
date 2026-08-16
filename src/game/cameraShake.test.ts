@@ -8,6 +8,12 @@ describe("hit camera shake", () => {
     expect(HIT_SHAKE_PROFILES.playerHit.duration).toBeGreaterThan(HIT_SHAKE_PROFILES.enemyHit.duration);
   });
 
+  it("scales heavy blows and critical attacks above normal hits", () => {
+    expect(HIT_SHAKE_PROFILES.playerHeavyHit.position).toBeGreaterThan(HIT_SHAKE_PROFILES.playerHit.position);
+    expect(HIT_SHAKE_PROFILES.enemyHeavyHit.position).toBeGreaterThan(HIT_SHAKE_PROFILES.enemyHit.position);
+    expect(HIT_SHAKE_PROFILES.execution.position).toBeGreaterThan(HIT_SHAKE_PROFILES.playerHeavyHit.position);
+  });
+
   it("has a fast attack and decays completely by the end of the impulse", () => {
     const duration = HIT_SHAKE_PROFILES.playerHit.duration;
     expect(hitShakeEnvelope(0, duration)).toBe(0);

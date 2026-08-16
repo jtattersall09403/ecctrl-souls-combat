@@ -1,7 +1,9 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { combatPoseAt } from "../game/combatPose";
 import type { AnimationState } from "../game/types";
 
 type ClipSettings = { clip: string; loop?: boolean; speed?: number; fade?: number };
@@ -21,16 +23,17 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   HEAVY: { clip: "Sword_Attack_RM", speed: 1.14, fade: 0.08 },
   HEAVY_2: { clip: "Sword_Attack", speed: 1.02, fade: 0.07 },
   ROLL: { clip: "Roll", speed: 1.05, fade: 0.04 },
-  BACKSTEP: { clip: "Roll_RM", speed: 1.2, fade: 0.04 },
+  BACKSTEP: { clip: "Jump_Start", speed: 1.55, fade: 0.04 },
   GUARD: { clip: "Pistol_Aim_Neutral", loop: true, speed: 0.12, fade: 0.08 },
-  PARRY: { clip: "Sword_Attack", speed: 2.8, fade: 0.04 },
-  RIPOSTE: { clip: "Sword_Attack_RM", speed: 1.45, fade: 0.04 },
-  BACKSTAB: { clip: "Sword_Attack_RM", speed: 1.12, fade: 0.04 },
-  BACKSTABBED: { clip: "Hit_Chest", speed: 0.48, fade: 0.03 },
+  PARRY: { clip: "Sword_Idle", loop: true, fade: 0.04 },
+  RIPOSTE: { clip: "Sword_Idle", loop: true, fade: 0.04 },
+  BACKSTAB: { clip: "Sword_Idle", loop: true, fade: 0.04 },
+  BACKSTABBED: { clip: "Sword_Idle", loop: true, fade: 0.03 },
   HEAL: { clip: "Spell_Simple_Shoot", speed: 0.72 },
   EQUIP: { clip: "Interact", speed: 1.25 },
   UNEQUIP: { clip: "Interact", speed: 1.25 },
   HIT: { clip: "Hit_Chest", speed: 1.15, fade: 0.03 },
+  HIT_HEAVY: { clip: "Hit_Head", speed: 0.78, fade: 0.03 },
   GUARD_BREAK: { clip: "Hit_Head", speed: 0.72, fade: 0.03 },
   DEATH: { clip: "Death01", speed: 0.72, fade: 0.08 },
 };
@@ -72,8 +75,31 @@ export function AnimatedFighter({
   const gltf = useGLTF(`${import.meta.env.BASE_URL}AnimationLibrary.glb`);
   const model = useMemo(() => clone(gltf.scene), [gltf.scene]);
   const root = useRef<THREE.Group>(null);
+  const visual = useRef<THREE.Group>(null);
   const previous = useRef<THREE.AnimationAction | null>(null);
+  const actionElapsed = useRef(0);
   const sword = useMemo(makeSword, []);
+  const weaponMount = useMemo(() => new THREE.Group(), []);
+  const poseQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const poseEuler = useMemo(() => new THREE.Euler(), []);
+  const handWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const visualWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const desiredWeaponQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const inverseHandQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const weaponTranslation = useMemo(() => new THREE.Vector3(), []);
+  const bones = useMemo(() => {
+    // GLTFLoader sanitizes dots from node names; accepting both forms also
+    // keeps this component compatible with loaders that preserve source names.
+    const find = (fileName: string, runtimeName: string) => model.getObjectByName(fileName) ?? model.getObjectByName(runtimeName);
+    return {
+      spine: find("DEF-spine.003", "DEF-spine003"),
+      hips: model.getObjectByName("DEF-hips"),
+      rightArm: find("DEF-upper_arm.R", "DEF-upper_armR"),
+      rightForearm: find("DEF-forearm.R", "DEF-forearmR"),
+      rightHand: find("DEF-hand.R", "DEF-handR"),
+      leftArm: find("DEF-upper_arm.L", "DEF-upper_armL"),
+    };
+  }, [model]);
   const { actions, mixer } = useAnimations(gltf.animations, root);
 
   useLayoutEffect(() => {
@@ -91,23 +117,28 @@ export function AnimatedFighter({
   }, [enemy, model]);
 
   useLayoutEffect(() => {
-    const hand = model.getObjectByName("DEF-handR");
+    const hand = model.getObjectByName("DEF-hand.R") ?? model.getObjectByName("DEF-handR");
     if (!hand) return;
-    sword.position.set(0, 0.04, 0.015);
+    weaponMount.position.set(0, 0.04, 0.015);
+    weaponMount.rotation.set(0, 0, 0);
+    sword.position.set(0, 0, 0);
     sword.rotation.set(0, 0, 0);
-    hand.add(sword);
+    weaponMount.add(sword);
+    hand.add(weaponMount);
     if (weaponRef) weaponRef.current = sword;
     return () => {
       if (weaponRef?.current === sword) weaponRef.current = null;
-      hand.remove(sword);
+      hand.remove(weaponMount);
+      weaponMount.remove(sword);
     };
-  }, [model, sword, weaponRef]);
+  }, [model, sword, weaponMount, weaponRef]);
 
   useEffect(() => {
     sword.visible = equipped;
   }, [equipped, sword]);
 
   useEffect(() => {
+    actionElapsed.current = 0;
     const settings = CLIPS[animation];
     const next = actions[settings.clip];
     if (!next || next === previous.current) return;
@@ -122,9 +153,51 @@ export function AnimatedFighter({
     previous.current = next;
   }, [actions, animation]);
 
+  useFrame((_, delta) => {
+    actionElapsed.current += Math.min(delta, 1 / 30);
+    const pose = combatPoseAt(animation, actionElapsed.current);
+    const rotate = (object: THREE.Object3D | undefined, x: number, y: number, z: number) => {
+      if (!object || (x === 0 && y === 0 && z === 0)) return;
+      poseEuler.set(x, y, z);
+      poseQuaternion.setFromEuler(poseEuler);
+      object.quaternion.multiply(poseQuaternion);
+    };
+    rotate(bones.spine, pose.bodyPitch, pose.bodyYaw, 0);
+    rotate(bones.hips, 0, pose.hipsY, 0);
+    rotate(bones.rightArm, pose.rightArmX, pose.rightArmY, pose.rightArmZ);
+    rotate(bones.rightForearm, pose.rightForearmX, 0, 0);
+    rotate(bones.rightHand, pose.rightHandX, 0, 0);
+    rotate(bones.leftArm, pose.leftArmX, 0, 0);
+    if (visual.current) {
+      visual.current.position.y = pose.modelY;
+      visual.current.rotation.set(pose.modelPitch, 0, 0);
+    }
+    if ((animation === "BACKSTAB" || animation === "RIPOSTE") && visual.current && bones.rightHand) {
+      // Keep the critical blade aimed along the fighter's forward axis even
+      // though the hand bone uses a character-rig-specific local basis.
+      root.current?.updateWorldMatrix(true, true);
+      bones.rightHand.getWorldQuaternion(handWorldQuaternion);
+      visual.current.getWorldQuaternion(visualWorldQuaternion);
+      inverseHandQuaternion.copy(handWorldQuaternion).invert();
+      poseEuler.set(Math.PI / 2, 0, 0);
+      desiredWeaponQuaternion.setFromEuler(poseEuler).premultiply(visualWorldQuaternion).premultiply(inverseHandQuaternion);
+      const alignment = THREE.MathUtils.clamp(pose.weaponPitch / (Math.PI / 2), 0, 1);
+      weaponMount.quaternion.identity().slerp(desiredWeaponQuaternion, alignment);
+      weaponTranslation.set(0, 0, pose.weaponForward)
+        .applyQuaternion(visualWorldQuaternion)
+        .applyQuaternion(inverseHandQuaternion);
+      weaponMount.position.copy(weaponTranslation);
+    } else {
+      weaponMount.position.set(0, 0.04, 0.015 + pose.weaponForward);
+      weaponMount.rotation.set(pose.weaponPitch, pose.weaponYaw, pose.weaponRoll);
+    }
+  });
+
   return (
     <group ref={root} position={[0, -0.94, 0]} dispose={null}>
-      <primitive object={model} />
+      <group ref={visual}>
+        <primitive object={model} />
+      </group>
     </group>
   );
 }
