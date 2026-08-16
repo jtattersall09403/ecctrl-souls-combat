@@ -109,9 +109,41 @@ describe("straight sword moveset", () => {
     }
   });
 
-  it("joins the first cut to the complete reverse cut at the same source pose", () => {
+  it("joins all three cuts at their exact authored source poses", () => {
     expect(LIGHT_COMBO_CLIP).toBe("Sword_Attack");
     expect(LIGHT_COMBO_PLAYBACK.LIGHT_1.activeEnd).toBe(LIGHT_COMBO_PLAYBACK.LIGHT_2.sourceOffset);
+    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.activeEnd).toBe(LIGHT_COMBO_PLAYBACK.LIGHT_3.sourceOffset);
+    expect(sampleLightClipTime("LIGHT_2", comboTransitionTime(STRAIGHT_SWORD.attacks.light2))).toBe(
+      sampleLightClipTime("LIGHT_3", comboEntryTime(STRAIGHT_SWORD.attacks.light3)),
+    );
+  });
+
+  it("holds the second cut at its apex instead of traversing the third cut during recovery", () => {
+    const attack = STRAIGHT_SWORD.attacks.light2;
+    const recoveryStart = comboTransitionTime(attack);
+    const recoveryMiddle = recoveryStart + attack.recovery / 2;
+    const recoveryEnd = recoveryStart + attack.recovery;
+    const apex = 29 / 30;
+
+    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.activeEnd).toBe(apex);
+    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.recoveryEnd).toBe(apex);
+    expect(sampleLightClipTime("LIGHT_2", recoveryStart)).toBe(apex);
+    expect(sampleLightClipTime("LIGHT_2", recoveryMiddle)).toBe(apex);
+    expect(sampleLightClipTime("LIGHT_2", recoveryEnd)).toBe(apex);
+    expect(sampleLightClipTime("LIGHT_2", recoveryEnd)).toBeLessThan(30 / 30);
+  });
+
+  it("loads, swings, and settles the finisher across its dedicated source frames", () => {
+    const attack = STRAIGHT_SWORD.attacks.light3;
+    expect(LIGHT_COMBO_PLAYBACK.LIGHT_3).toMatchObject({
+      sourceOffset: 29 / 30,
+      windupEnd: 30 / 30,
+      activeEnd: 38 / 30,
+      recoveryEnd: 46 / 30,
+    });
+    expect(sampleLightClipTime("LIGHT_3", attack.windup)).toBe(30 / 30);
+    expect(sampleLightClipTime("LIGHT_3", comboTransitionTime(attack))).toBe(38 / 30);
+    expect(sampleLightClipTime("LIGHT_3", attack.windup + attack.active + attack.recovery)).toBe(46 / 30);
   });
 
   it("accepts queue input only during the current swing and carries frame overshoot", () => {

@@ -1,3 +1,5 @@
+import { SWORD_TWO_HAND_GRIP_SEPARATION } from "./weaponGrip";
+
 export type MotionPoint = { x: number; y: number; z: number };
 
 export const EXECUTION_ANCHOR_DISTANCE = 1.45;
@@ -54,12 +56,12 @@ export function parryWeaponPath(progress: number): { grip: MotionPoint; tip: Mot
   const grip = {
     x: lerp(-0.1, -0.06, sweep),
     y: lerp(1.18, 1.22, sweep),
-    z: lerp(0.2, 0.23, sweep),
+    z: lerp(0.16, 0.19, sweep),
   };
   const guide = {
     x: lerp(-0.55, 0.48, sweep),
     y: lerp(1.62, 1.58, sweep),
-    z: lerp(0.56, 0.62, sweep),
+    z: lerp(0.52, 0.58, sweep),
   };
   const dx = guide.x - grip.x;
   const dy = guide.y - grip.y;
@@ -76,12 +78,12 @@ export function parryWeaponPath(progress: number): { grip: MotionPoint; tip: Mot
 }
 
 export function guardWeaponPath(): { grip: MotionPoint; tip: MotionPoint; offHand: MotionPoint } {
-  const grip = { x: -0.06, y: 1.2, z: 0.22 };
+  const grip = { x: -0.02, y: 1.2, z: 0.18 };
   return {
     grip,
     tip: { x: grip.x, y: grip.y + EXECUTION_BLADE_LENGTH, z: grip.z },
-    // The supporting hand wraps the lower part of the hilt.
-    offHand: { x: -0.05, y: 1.07, z: 0.22 },
+    // Both palm centers lie on the same rigid hilt at the measured marker gap.
+    offHand: { x: grip.x, y: grip.y - SWORD_TWO_HAND_GRIP_SEPARATION, z: grip.z },
   };
 }
 

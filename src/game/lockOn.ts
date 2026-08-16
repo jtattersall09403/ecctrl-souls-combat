@@ -1,5 +1,17 @@
 import type { AnimationState, Vec2 } from "./types";
 
+export const WALK_LOOP_PLANTED_SPEED = 1.046;
+export const MAX_WALK_LOOP_TIME_SCALE = 3.5;
+
+type WalkLoopAnimation = Extract<AnimationState, "WALK" | "WALK_BACK" | "STRAFE_LEFT" | "STRAFE_RIGHT">;
+
+/** Matches the authored planted-foot speed to Ecctrl's relative planar speed. */
+export function walkLoopTimeScale(animation: WalkLoopAnimation, moveSpeed: number) {
+  const finiteSpeed = Number.isFinite(moveSpeed) ? Math.max(0, moveSpeed) : 0;
+  const magnitude = Math.min(MAX_WALK_LOOP_TIME_SCALE, finiteSpeed / WALK_LOOP_PLANTED_SPEED);
+  return animation === "WALK_BACK" ? -magnitude : magnitude;
+}
+
 export function lockOnYaws(
   player: { x: number; z: number },
   target: { x: number; z: number },

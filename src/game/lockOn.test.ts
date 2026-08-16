@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_WALK_LOOP_TIME_SCALE,
+  WALK_LOOP_PLANTED_SPEED,
   dampLockOnOrientationWarp,
   lockOnLocomotionAnimation,
   lockOnOrientationWarp,
   lockOnSprintAllowed,
   lockOnYaws,
+  walkLoopTimeScale,
 } from "./lockOn";
 
 describe("lock-on orientation", () => {
@@ -66,5 +69,21 @@ describe("lock-on locomotion", () => {
     expect(interrupted).toBeGreaterThan(0);
     expect(interrupted).toBeLessThan(Math.PI / 2);
     expect(dampLockOnOrientationWarp(interrupted, 0, 0.5)).toBeLessThan(0.01);
+  });
+
+  it("matches walk-loop playback to Ecctrl's relative planar speed", () => {
+    expect(walkLoopTimeScale("WALK", WALK_LOOP_PLANTED_SPEED)).toBeCloseTo(1);
+    expect(walkLoopTimeScale("WALK_BACK", WALK_LOOP_PLANTED_SPEED)).toBeCloseTo(-1);
+    expect(walkLoopTimeScale("STRAFE_LEFT", WALK_LOOP_PLANTED_SPEED)).toBeCloseTo(1);
+    expect(walkLoopTimeScale("STRAFE_RIGHT", WALK_LOOP_PLANTED_SPEED)).toBeCloseTo(1);
+    expect(walkLoopTimeScale("WALK_BACK", 3.6)).toBeCloseTo(-(3.6 / WALK_LOOP_PLANTED_SPEED));
+  });
+
+  it("stops at zero and clamps implausible gait playback rates", () => {
+    expect(walkLoopTimeScale("WALK", 0)).toBe(0);
+    expect(walkLoopTimeScale("WALK_BACK", -1)).toBe(-0);
+    expect(walkLoopTimeScale("WALK", Number.NaN)).toBe(0);
+    expect(walkLoopTimeScale("WALK", 100)).toBe(MAX_WALK_LOOP_TIME_SCALE);
+    expect(walkLoopTimeScale("WALK_BACK", 100)).toBe(-MAX_WALK_LOOP_TIME_SCALE);
   });
 });

@@ -1,4 +1,5 @@
 import type { AnimationState } from "./types";
+import { BLOCK_RECOIL_DURATION } from "./blockReaction";
 import { STRAIGHT_SWORD } from "./weapon";
 
 export type CombatPose = {
@@ -54,6 +55,7 @@ export const COMBAT_POSE_DURATIONS: Partial<Record<AnimationState, number>> = {
   RIPOSTE: 1.06,
   BACKSTAB: 1.36,
   BACKSTABBED: 2.35,
+  RECOIL: BLOCK_RECOIL_DURATION,
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -176,6 +178,11 @@ export function combatPoseAt(animation: AnimationState, elapsed: number): Combat
     const recoil = bell(clamp01(p / 0.48), 0.45);
     pose.modelPitch = -0.16 * recoil;
     pose.bodyPitch = -0.24 * recoil;
+  } else if (animation === "RECOIL") {
+    const rebound = bell(p, 0.32);
+    pose.bodyPitch = -0.12 * rebound;
+    pose.weaponPitch = -0.28 * rebound;
+    pose.weaponRoll = 0.18 * rebound;
   }
 
   return pose;

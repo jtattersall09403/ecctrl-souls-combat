@@ -7,12 +7,18 @@ export const CRITICAL_ATTACK_DAMAGE = LIGHT_ATTACK_BASE_DAMAGE * CRITICAL_DAMAGE
 export type ComboInput = "light" | "heavy";
 export const LIGHT_COMBO_CLIP = "Sword_Attack";
 
-// The source animation contains two complementary cuts. These ranges split it
-// at stable contact poses so each gameplay phase follows the blade itself.
+// The source animation contains three complementary cuts. These ranges split
+// it at stable contact poses so queued attacks continue from the preceding
+// blade pose instead of restarting the clip.
 export const LIGHT_COMBO_PLAYBACK = {
   LIGHT_1: { sourceOffset: 0, windupEnd: 10 / 30, activeEnd: 17 / 30, recoveryEnd: 23 / 30, windup: 0.18, active: 0.34, recovery: 0.2 },
-  LIGHT_2: { sourceOffset: 17 / 30, windupEnd: 23 / 30, activeEnd: 38 / 30, recoveryEnd: 42 / 30, windup: 0.1, active: 0.36, recovery: 0.18 },
-  LIGHT_3: { sourceOffset: 0, windupEnd: 10 / 30, activeEnd: 17 / 30, recoveryEnd: 23 / 30, windup: 0.18, active: 0.42, recovery: 0.34 },
+  // Frames 17-23 connect from the first cut, then 23-29 perform the
+  // low-to-high backslash. Holding frame 29 during recovery prevents the
+  // following downward cut from appearing while its hitbox is inactive.
+  LIGHT_2: { sourceOffset: 17 / 30, windupEnd: 23 / 30, activeEnd: 29 / 30, recoveryEnd: 29 / 30, windup: 0.08, active: 0.3, recovery: 0.18 },
+  // The finisher inherits frame 29, takes one frame to load, commits through
+  // the larger downward cut, then uses the authored settle through frame 46.
+  LIGHT_3: { sourceOffset: 29 / 30, windupEnd: 30 / 30, activeEnd: 38 / 30, recoveryEnd: 46 / 30, windup: 0.07, active: 0.42, recovery: 0.34 },
 } as const;
 
 export function sampleLightClipTime(
