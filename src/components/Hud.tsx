@@ -117,10 +117,15 @@ export function Hud() {
       </section>
 
       <section className="enemy-vitals" aria-label="Enemy status">
-        <span>THE HOLLOW WARDEN</span>
-        <Bar value={state.enemyHealth} max={150} className="enemy-health" label="Enemy health" />
+        {state.enemyEnabled && (
+          <>
+            <span>THE HOLLOW WARDEN</span>
+            <Bar value={state.enemyHealth} max={150} className="enemy-health" label="Enemy health" />
+          </>
+        )}
       </section>
 
+      {state.damagePulse > 0 && <div key={state.damagePulse} className="damage-vignette" aria-hidden="true" />}
       {state.lockedOn && state.enemyHealth > 0 && <div className="lock-reticle" aria-label="Target locked"><span /></div>}
       {state.message && <div className={`combat-message ${(dead || won) ? "major" : ""}`}>{state.message}</div>}
 
@@ -135,6 +140,35 @@ export function Hud() {
       </div>
 
       <button className="help-button" onClick={() => setHelp((value) => !value)} aria-expanded={help}>?</button>
+      <details className="debug-panel">
+        <summary>DEBUG</summary>
+        <label>
+          <input
+            type="checkbox"
+            checked={state.enemyEnabled}
+            onChange={(event) => state.patch({ enemyEnabled: event.target.checked, lockedOn: false })}
+          />
+          Enemy present
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={state.enemyAiEnabled}
+            disabled={!state.enemyEnabled}
+            onChange={(event) => state.patch({ enemyAiEnabled: event.target.checked })}
+          />
+          Enemy attacks
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={state.showHitboxes}
+            onChange={(event) => state.patch({ showHitboxes: event.target.checked })}
+          />
+          Show hitboxes
+        </label>
+        <button onClick={state.reset}>RESET &amp; RESTART</button>
+      </details>
       {!touch && state.started && <CameraZone />}
       {help && (
         <aside className="help-panel">
@@ -180,7 +214,6 @@ export function Hud() {
         </div>
       )}
 
-      {(dead || won) && <button className="retry-button" onClick={() => window.location.reload()}>RETURN TO THE ARENA</button>}
     </div>
   );
 }

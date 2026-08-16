@@ -1,5 +1,5 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { AnimationState } from "../game/types";
@@ -15,17 +15,17 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   JUMP_IDLE: { clip: "Jump_Loop", loop: true },
   JUMP_LAND: { clip: "Jump_Land", speed: 1.35 },
   SWORD_IDLE: { clip: "Sword_Idle", loop: true },
-  LIGHT_1: { clip: "Sword_Attack", speed: 1.12, fade: 0.06 },
-  LIGHT_2: { clip: "Punch_Cross", speed: 1.05, fade: 0.05 },
-  LIGHT_3: { clip: "Punch_Jab", speed: 0.9, fade: 0.05 },
-  HEAVY: { clip: "Pistol_Shoot", speed: 0.55, fade: 0.08 },
-  HEAVY_2: { clip: "Spell_Simple_Shoot", speed: 0.68, fade: 0.07 },
+  LIGHT_1: { clip: "Sword_Attack", speed: 2.25, fade: 0.06 },
+  LIGHT_2: { clip: "Sword_Attack_RM", speed: 2.13, fade: 0.05 },
+  LIGHT_3: { clip: "Sword_Attack", speed: 1.78, fade: 0.05 },
+  HEAVY: { clip: "Sword_Attack_RM", speed: 1.14, fade: 0.08 },
+  HEAVY_2: { clip: "Sword_Attack", speed: 1.02, fade: 0.07 },
   ROLL: { clip: "Roll", speed: 1.05, fade: 0.04 },
   BACKSTEP: { clip: "Roll_RM", speed: 1.2, fade: 0.04 },
   GUARD: { clip: "Pistol_Aim_Neutral", loop: true, speed: 0.12, fade: 0.08 },
-  PARRY: { clip: "Punch_Cross", speed: 1.28, fade: 0.04 },
-  RIPOSTE: { clip: "Punch_Jab", speed: 0.68, fade: 0.04 },
-  BACKSTAB: { clip: "Punch_Jab", speed: 0.58, fade: 0.04 },
+  PARRY: { clip: "Sword_Attack", speed: 2.8, fade: 0.04 },
+  RIPOSTE: { clip: "Sword_Attack_RM", speed: 1.45, fade: 0.04 },
+  BACKSTAB: { clip: "Sword_Attack_RM", speed: 1.12, fade: 0.04 },
   BACKSTABBED: { clip: "Hit_Chest", speed: 0.48, fade: 0.03 },
   HEAL: { clip: "Spell_Simple_Shoot", speed: 0.72 },
   EQUIP: { clip: "Interact", speed: 1.25 },
@@ -62,10 +62,12 @@ export function AnimatedFighter({
   animation,
   equipped,
   enemy = false,
+  weaponRef,
 }: {
   animation: AnimationState;
   equipped: boolean;
   enemy?: boolean;
+  weaponRef?: MutableRefObject<THREE.Object3D | null>;
 }) {
   const gltf = useGLTF(`${import.meta.env.BASE_URL}AnimationLibrary.glb`);
   const model = useMemo(() => clone(gltf.scene), [gltf.scene]);
@@ -94,10 +96,12 @@ export function AnimatedFighter({
     sword.position.set(0, 0.04, 0.015);
     sword.rotation.set(0, 0, 0);
     hand.add(sword);
+    if (weaponRef) weaponRef.current = sword;
     return () => {
+      if (weaponRef?.current === sword) weaponRef.current = null;
       hand.remove(sword);
     };
-  }, [model, sword]);
+  }, [model, sword, weaponRef]);
 
   useEffect(() => {
     sword.visible = equipped;

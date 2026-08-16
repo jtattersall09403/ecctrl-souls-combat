@@ -18,10 +18,23 @@ export const initialSnapshot: GameSnapshot = {
   message: "",
   started: false,
   gamepad: "",
+  damagePulse: 0,
+  enemyEnabled: true,
+  enemyAiEnabled: true,
+  showHitboxes: false,
+  resetToken: 0,
 };
 
 export const useGameStore = create<GameStore>((set) => ({
   ...initialSnapshot,
   patch: (patch) => set(patch),
-  reset: () => set({ ...initialSnapshot, started: true, message: "ENEMY REVIVED" }),
+  reset: () => set((state) => ({
+    ...initialSnapshot,
+    started: true,
+    message: "FIGHT RESTARTED",
+    enemyEnabled: state.enemyEnabled,
+    enemyAiEnabled: state.enemyAiEnabled,
+    showHitboxes: state.showHitboxes,
+    resetToken: state.resetToken + 1,
+  })),
 }));
