@@ -159,6 +159,19 @@ export function cameraRelativeDirection(movement: Vec2, cameraYaw: number) {
   };
 }
 
+export function resolveAttackDirection(
+  movement: Vec2,
+  cameraYaw: number,
+  fallback: { x: number; z: number },
+  deadZone = 0.0001,
+) {
+  const direction = Math.hypot(movement.x, movement.y) > deadZone
+    ? cameraRelativeDirection(movement, cameraYaw)
+    : { x: fallback.x, y: 0, z: fallback.z };
+  const length = Math.hypot(direction.x, direction.z) || 1;
+  return { x: direction.x / length, y: 0, z: direction.z / length };
+}
+
 export function analogueMoveSpeed(magnitude: number, sprinting: boolean) {
   const amount = Math.min(1, Math.max(0, magnitude));
   return (sprinting ? 5.5 : 3.6) * amount;

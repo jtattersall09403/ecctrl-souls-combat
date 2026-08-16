@@ -48,15 +48,18 @@ export function executionWeaponPath(progress: number): { grip: MotionPoint; tip:
 
 export function parryWeaponPath(progress: number): { grip: MotionPoint; tip: MotionPoint } {
   const sweep = segment(clamp01(progress), 0.08, 0.54);
+  // The weapon hand remains on the fighter's anatomical right. The blade
+  // performs the cross-body deflection, preventing the upper arm from being
+  // pulled through the rib cage by the IK target.
   const grip = {
-    x: lerp(-0.08, 0.18, sweep),
-    y: lerp(1.22, 1.25, sweep),
-    z: lerp(0.3, 0.32, sweep),
+    x: lerp(-0.1, -0.06, sweep),
+    y: lerp(1.18, 1.22, sweep),
+    z: lerp(0.2, 0.23, sweep),
   };
   const guide = {
-    x: lerp(-0.5, 0.58, sweep),
-    y: lerp(1.65, 1.68, sweep),
-    z: lerp(0.55, 0.62, sweep),
+    x: lerp(-0.55, 0.48, sweep),
+    y: lerp(1.62, 1.58, sweep),
+    z: lerp(0.56, 0.62, sweep),
   };
   const dx = guide.x - grip.x;
   const dy = guide.y - grip.y;
@@ -69,6 +72,16 @@ export function parryWeaponPath(progress: number): { grip: MotionPoint; tip: Mot
       y: grip.y + dy / length * EXECUTION_BLADE_LENGTH,
       z: grip.z + dz / length * EXECUTION_BLADE_LENGTH,
     },
+  };
+}
+
+export function guardWeaponPath(): { grip: MotionPoint; tip: MotionPoint; offHand: MotionPoint } {
+  const grip = { x: -0.06, y: 1.2, z: 0.22 };
+  return {
+    grip,
+    tip: { x: grip.x, y: grip.y + EXECUTION_BLADE_LENGTH, z: grip.z },
+    // The supporting hand wraps the lower part of the hilt.
+    offHand: { x: -0.05, y: 1.07, z: 0.22 },
   };
 }
 

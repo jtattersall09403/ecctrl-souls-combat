@@ -15,14 +15,16 @@ import {
   JUMP_VELOCITY,
 } from "../game/characterPhysics";
 import { selectEnemyIntent } from "../game/enemyAi";
-import { analogueMoveSpeed, cameraRelativeDirection, input } from "../game/input";
-import { lockOnYaws } from "../game/lockOn";
+import { analogueMoveSpeed, cameraRelativeDirection, input, resolveAttackDirection } from "../game/input";
+import { lockOnLocomotionAnimation, lockOnOrientationWarp, lockOnSprintAllowed, lockOnYaws } from "../game/lockOn";
 import { useGameStore } from "../game/store";
 import type { AnimationState, AttackDefinition, CombatAction } from "../game/types";
 import {
   COMBAT_TUNING,
   STRAIGHT_SWORD,
   comboEntryTime,
+  comboQueueOpen,
+  comboSuccessorStartTime,
   comboTransitionTime,
   getComboSuccessor,
   hitReactionForAttack,
@@ -186,6 +188,8 @@ function Battle() {
   const moveMagnitudeRef = useRef(0);
   const sprintingRef = useRef(false);
   const movementAllowedRef = useRef(true);
+  const playerLocomotionWarp = useRef(0);
+  const playerLocomotionReversing = useRef(false);
   const wasGrounded = useRef(true);
   const maximumDownwardSpeed = useRef(0);
   const landingTimer = useRef(0);
@@ -205,7 +209,9 @@ function Battle() {
   const enemyDodgeDirection = useRef(new THREE.Vector3());
   const enemyStrafeSide = useRef(1);
   const enemyStaggerDuration = useRef(0.58);
+  const enemyLocomotionWarp = useRef(0);
   const criticalType = useRef<"riposte" | "backstab" | null>(null);
+  const criticalVictimYaw = useRef(0);
 
   const cameraYaw = useRef(0);
   const cameraPitch = useRef(0.34);
@@ -301,7 +307,17 @@ function Battle() {
       : null;
     if (playerAttack.current) {
       const axis = direction ?? player.current?.bodyZAxis;
-      if (axis) playerAttackDirection.current.copy(axis).setY(0).normalize();
+      if (axis) {
+        playerAttackDirection.current.copy(axis).setY(0).normalize();
+        const handle = player.current;
+        if (handle) {
+          handle.setForwardDir(playerAttackDirection.current);
+          handle.setLockForward(true);
+          handle.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+          tmp.current.quaternion.setFromAxisAngle(UP, Math.atan2(playerAttackDirection.current.x, playerAttackDirection.current.z));
+          handle.body.setRotation(tmp.current.quaternion, true);
+        }
+      }
     }
     playerAttackHit.current = false;
     comboQueued.current = null;
@@ -314,6 +330,7 @@ function Battle() {
     playerAction.current = "idle";
     playerActionTime.current = 0;
     playerAttack.current = null;
+    if (!lockedOn.current) player.current?.setLockForward(false);
     setAnim("player", equipped.current ? "SWORD_IDLE" : "IDLE");
   }, [setAnim]);
 
@@ -430,6 +447,8 @@ function Battle() {
       handle.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       handle.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       handle.body.setRotation({ x: 0, y: 1, z: 0, w: 0 }, true);
+      handle.setForwardDir(new THREE.Vector3(0, 0, -1));
+      handle.setLockForward(false);
     }
     enemyPosition.current.copy(ENEMY_START);
     if (enemy.current) {
@@ -466,6 +485,10 @@ function Battle() {
     enemyDecision.current = 0.7;
     enemyYaw.current = 0;
     criticalType.current = null;
+    criticalVictimYaw.current = 0;
+    playerLocomotionWarp.current = 0;
+    playerLocomotionReversing.current = false;
+    enemyLocomotionWarp.current = 0;
     maximumDownwardSpeed.current = 0;
     damagePulse.current = 0;
     hitStop.current = 0;
@@ -523,14 +546,18 @@ function Battle() {
     wasGrounded.current = handle.isOnGround;
     if (input.pressed("dodge")) dodgeHold.current = 0;
     if (input.held("dodge")) dodgeHold.current += delta;
-    const sprinting = input.held("dodge") && dodgeHold.current > 0.22 && moveMagnitude > 0.15 && playerAction.current === "idle";
-    sprintingRef.current = sprinting;
     const jumpStarted = input.pressed("jump") && handle.isOnGround && playerAction.current === "idle";
 
     if (input.pressed("lockOn") && enemyHealth.current > 0) {
       lockedOn.current = !lockedOn.current;
       announce(lockedOn.current ? "TARGET LOCKED" : "TARGET RELEASED", 0.75);
     }
+    const sprinting = lockOnSprintAllowed(lockedOn.current)
+      && input.held("dodge")
+      && dodgeHold.current > 0.22
+      && moveMagnitude > 0.15
+      && playerAction.current === "idle";
+    sprintingRef.current = sprinting;
 
     if (playerAction.current === "roll" && equipped.current) {
       if (input.pressed("light")) rollAttackQueued.current = "light";
@@ -578,7 +605,8 @@ function Battle() {
       if (spendStamina(attack.stamina)) {
         startPlayerAction(attack.id, attack.animation);
         if (attack.id === "backstab" || attack.id === "riposte") {
-          const forward = tmp.current.forward.set(Math.sin(enemyYaw.current), 0, Math.cos(enemyYaw.current));
+          criticalVictimYaw.current = enemyYaw.current;
+          const forward = tmp.current.forward.set(Math.sin(criticalVictimYaw.current), 0, Math.cos(criticalVictimYaw.current));
           const type = attack.id;
           const anchor = executionAnchor(enemyPosition.current, forward, type);
           criticalType.current = type;
@@ -588,9 +616,21 @@ function Battle() {
             z: anchor.z,
           }, true);
           body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
-          tmp.current.quaternion.setFromAxisAngle(UP, executionFacingYaw(enemyYaw.current, type));
+          const attackerYaw = executionFacingYaw(criticalVictimYaw.current, type);
+          playerAttackDirection.current.set(Math.sin(attackerYaw), 0, Math.cos(attackerYaw));
+          handle.setForwardDir(playerAttackDirection.current);
+          handle.setLockForward(true);
+          body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+          tmp.current.quaternion.setFromAxisAngle(UP, attackerYaw);
           body.setRotation(tmp.current.quaternion, true);
-          enemyHandle?.body.setLinvel({ x: 0, y: enemyHandle.body.linvel().y, z: 0 }, true);
+          if (enemyHandle) {
+            enemyHandle.setForwardDir(forward);
+            enemyHandle.setLockForward(true);
+            enemyHandle.body.setLinvel({ x: 0, y: enemyHandle.body.linvel().y, z: 0 }, true);
+            enemyHandle.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+            tmp.current.quaternion.setFromAxisAngle(UP, criticalVictimYaw.current);
+            enemyHandle.body.setRotation(tmp.current.quaternion, true);
+          }
           setEnemyMode("critical", "BACKSTABBED");
           lockedOn.current = true;
           announce(type === "backstab" ? "BACKSTAB" : "RIPOSTE", 1.4);
@@ -632,11 +672,11 @@ function Battle() {
       const executionProgress = playerActionTime.current / attackDuration;
       playerHitboxActive.current = weaponActive && equipped.current && enemyEnabled && enemyHealth.current > 0;
       if (execution && enemyMode.current === "critical" && executionProgress < EXECUTION_WITHDRAWAL_PROGRESS) {
-        const victimForward = tmp.current.forward.set(Math.sin(enemyYaw.current), 0, Math.cos(enemyYaw.current));
+        const victimForward = tmp.current.forward.set(Math.sin(criticalVictimYaw.current), 0, Math.cos(criticalVictimYaw.current));
         const anchor = executionAnchor(enemyPosition.current, victimForward, execution);
         body.setTranslation({ x: anchor.x, y: playerPos.y, z: anchor.z }, true);
         body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
-        tmp.current.quaternion.setFromAxisAngle(UP, executionFacingYaw(enemyYaw.current, execution));
+        tmp.current.quaternion.setFromAxisAngle(UP, executionFacingYaw(criticalVictimYaw.current, execution));
         body.setRotation(tmp.current.quaternion, true);
       } else if (phase === "windup" && attack.lunge > 0) {
         body.setLinvel({
@@ -647,7 +687,7 @@ function Battle() {
       } else if (phase === "recovery") {
         body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
       }
-      const comboInputOpen = playerActionTime.current >= attack.windup && playerActionTime.current <= transitionAt + frameDelta;
+      const comboInputOpen = comboQueueOpen(playerActionTime.current, playerActionTime.current - delta, attack);
       if (comboInputOpen) {
         if (input.pressed("light") && (attack.id === "light1" || attack.id === "light2")) comboQueued.current = "light";
         if (input.pressed("heavy") && attack.id === "heavy") comboQueued.current = "heavy";
@@ -677,7 +717,8 @@ function Battle() {
       const nextAttack = getComboSuccessor(attack, comboQueued.current);
       if (nextAttack && playerActionTime.current >= transitionAt) {
         if (nextAttack && spendStamina(nextAttack.stamina)) {
-          startPlayerAction(nextAttack.id, nextAttack.animation, comboEntryTime(nextAttack), playerAttackDirection.current);
+          const successorStart = comboEntryTime(nextAttack) + comboSuccessorStartTime(playerActionTime.current, attack);
+          startPlayerAction(nextAttack.id, nextAttack.animation, successorStart, playerAttackDirection.current);
           combatAudio.play("swing");
         } else {
           comboQueued.current = null;
@@ -707,12 +748,13 @@ function Battle() {
         if (playerAction.current === "roll" && rollAttackQueued.current) {
           const queued = rollAttackQueued.current;
           const queuedAttack = queued === "heavy" ? STRAIGHT_SWORD.attacks.heavy : STRAIGHT_SWORD.attacks.light1;
-          const direction = moveMagnitude > 0.15
-            ? cameraRelativeDirection(input.movement, cameraYaw.current)
-            : handle.bodyZAxis;
+          const direction = resolveAttackDirection(input.movement, cameraYaw.current, handle.bodyZAxis);
           tmp.current.movement.set(direction.x, 0, direction.z).normalize();
           if (spendStamina(queuedAttack.stamina)) {
             tmp.current.quaternion.setFromAxisAngle(UP, Math.atan2(tmp.current.movement.x, tmp.current.movement.z));
+            handle.setForwardDir(tmp.current.movement);
+            handle.setLockForward(true);
+            body.setAngvel({ x: 0, y: 0, z: 0 }, true);
             body.setRotation(tmp.current.quaternion, true);
             body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
             startPlayerAction(queuedAttack.id, queuedAttack.animation, 0, tmp.current.movement);
@@ -754,6 +796,14 @@ function Battle() {
     }
 
     if (playerAction.current === "idle") {
+      const lockWarp = lockedOn.current
+        ? lockOnOrientationWarp(input.movement, playerLocomotionReversing.current)
+        : null;
+      playerLocomotionReversing.current = lockWarp?.reversing ?? false;
+      const lockedLocomotion = lockWarp
+        ? lockOnLocomotionAnimation(input.movement, moveMagnitude, lockWarp.reversing)
+        : null;
+      playerLocomotionWarp.current = lockedLocomotion ? lockWarp?.warp ?? 0 : 0;
       const locomotion = !handle.isOnGround
         ? "JUMP_IDLE"
         : jumpStarted
@@ -762,6 +812,8 @@ function Battle() {
             ? "JUMP_LAND"
             : sprinting
               ? "SPRINT"
+              : lockedLocomotion
+                ? lockedLocomotion
               : moveMagnitude > 0.72
                 ? "RUN"
                 : moveMagnitude > 0.08
@@ -770,6 +822,9 @@ function Battle() {
                     ? "SWORD_IDLE"
                     : "IDLE";
       setAnim("player", locomotion);
+    } else {
+      playerLocomotionWarp.current = 0;
+      playerLocomotionReversing.current = false;
     }
 
     // Utility selection chooses a tactical intent; the state machine below owns
@@ -780,7 +835,21 @@ function Battle() {
     let enemyMoveX = 0;
     let enemyMoveY = 0;
     let enemyRunning = false;
-    enemyHandle?.setForwardDir(direction);
+    const criticalVictimFrozen = ["critical", "criticalFall", "criticalGetUp"].includes(enemyMode.current);
+    if (enemyHandle) {
+      const frozenYaw = criticalVictimFrozen ? criticalVictimYaw.current : enemyYaw.current;
+      if (criticalVictimFrozen || enemyMode.current === "dead") {
+        tmp.current.forward.set(Math.sin(frozenYaw), 0, Math.cos(frozenYaw));
+        enemyHandle.setForwardDir(tmp.current.forward);
+        enemyHandle.setLockForward(true);
+        enemyHandle.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        tmp.current.quaternion.setFromAxisAngle(UP, frozenYaw);
+        enemyHandle.body.setRotation(tmp.current.quaternion, true);
+      } else {
+        enemyHandle.setForwardDir(direction);
+        enemyHandle.setLockForward(true);
+      }
+    }
     if (enemyStaminaCooldown.current <= 0 && !["attack", "guard", "parry", "dodge", "backstep"].includes(enemyMode.current)) {
       enemyStamina.current = Math.min(COMBAT_TUNING.maxStamina, enemyStamina.current + COMBAT_TUNING.staminaRegenPerSecond * delta);
     }
@@ -856,7 +925,7 @@ function Battle() {
           setEnemyMode("heal", "HEAL");
         } else if (intent === "strafe") {
           enemyStrafeSide.current = Math.random() > 0.5 ? 1 : -1;
-          setEnemyMode("strafe", "WALK");
+          setEnemyMode("strafe", enemyStrafeSide.current < 0 ? "STRAFE_LEFT" : "STRAFE_RIGHT");
         } else {
           enemyMode.current = "approach";
           setAnim("enemy", "WALK");
@@ -871,6 +940,7 @@ function Battle() {
       }
     } else if (enemyMode.current === "strafe") {
       enemyMoveX = enemyStrafeSide.current;
+      setAnim("enemy", enemyStrafeSide.current < 0 ? "STRAFE_LEFT" : "STRAFE_RIGHT");
       if (enemyModeTime.current > 0.62) setEnemyMode("watching", "SWORD_IDLE");
     } else if (enemyMode.current === "attack") {
       const phase = phaseAt(enemyModeTime.current, enemyAttack.current);
@@ -907,8 +977,9 @@ function Battle() {
         enemyComboRemaining.current -= 1;
         enemyStamina.current -= nextCombo.stamina;
         enemyStaminaCooldown.current = COMBAT_TUNING.staminaRegenDelay;
+        const successorStart = comboEntryTime(nextCombo) + comboSuccessorStartTime(enemyModeTime.current, enemyAttack.current);
         enemyAttack.current = nextCombo;
-        setEnemyMode("attack", nextCombo.animation, comboEntryTime(nextCombo));
+        setEnemyMode("attack", nextCombo.animation, successorStart);
         combatAudio.play("swing");
       } else if (phase === "none") {
         enemyComboRemaining.current = 0;
@@ -967,19 +1038,41 @@ function Battle() {
       setEnemyMode("recover", "SWORD_IDLE");
     }
     enemyHandle?.setMovement({ joystick: { x: enemyMoveX, y: enemyMoveY }, run: enemyRunning, jump: false });
+    enemyLocomotionWarp.current = enemyMode.current === "strafe"
+      ? lockOnOrientationWarp({ x: enemyMoveX, y: enemyMoveY }).warp
+      : 0;
     if (enemyHandle && ["critical", "criticalFall", "criticalGetUp", "dead"].includes(enemyMode.current)) {
       enemyHandle.body.setLinvel({ x: 0, y: enemyHandle.body.linvel().y, z: 0 }, true);
     }
 
     const lockTargetActive = lockedOn.current && (enemyHealth.current > 0 || enemyMode.current === "critical");
+    if (playerAttack.current) {
+      handle.setForwardDir(playerAttackDirection.current);
+      handle.setLockForward(true);
+    }
     if (lockTargetActive) {
       const yaws = lockOnYaws(playerPos, enemyPosition.current);
       cameraYaw.current = yaws.cameraYaw;
       tmp.current.quaternion.setFromAxisAngle(UP, yaws.playerFacingYaw);
+      if (!playerAttack.current && playerAction.current !== "roll" && playerAction.current !== "backstep") {
+        tmp.current.forward.set(
+          enemyPosition.current.x - playerPos.x,
+          0,
+          enemyPosition.current.z - playerPos.z,
+        ).normalize();
+        handle.setForwardDir(tmp.current.forward);
+        handle.setLockForward(true);
+      }
       if (playerAction.current === "idle" || playerAction.current === "guard") body.setRotation(tmp.current.quaternion, true);
     } else {
       cameraYaw.current -= input.camera.x * delta * 2.35;
       cameraPitch.current = THREE.MathUtils.clamp(cameraPitch.current + input.camera.y * delta * 1.7, 0.08, 0.78);
+      if (!playerAttack.current) {
+        handle.setLockForward(false);
+        const freeForward = cameraRelativeDirection({ x: 0, y: 1 }, cameraYaw.current);
+        tmp.current.forward.set(freeForward.x, 0, freeForward.z).normalize();
+        handle.setForwardDir(tmp.current.forward);
+      }
     }
 
     const camDistance = playerAction.current === "backstab" ? 4.7 : lockedOn.current ? 6.7 : 5.8;
@@ -1048,12 +1141,16 @@ function Battle() {
         dampingC={7}
         jumpVel={JUMP_VELOCITY}
         colliders={false}
+        useCustomForward
         name="player"
       >
         <AnimatedFighter
           animation={playerAnimation}
           animationStartAt={playerAnimationStartAt}
           animationEpoch={playerAnimationEpoch}
+          animationTimeRef={playerActionTime}
+          animationStateRef={playerAnimationRef}
+          locomotionWarpRef={playerLocomotionWarp}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped={equipped.current}
           weaponRef={playerWeapon}
@@ -1093,6 +1190,9 @@ function Battle() {
               animation={enemyAnimation}
               animationStartAt={enemyAnimationStartAt}
               animationEpoch={enemyAnimationEpoch}
+              animationTimeRef={enemyModeTime}
+              animationStateRef={enemyAnimationRef}
+              locomotionWarpRef={enemyLocomotionWarp}
               modelOffsetY={CHARACTER_MODEL_OFFSET}
               equipped
               enemy

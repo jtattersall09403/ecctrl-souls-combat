@@ -7,6 +7,7 @@ import {
   executionBladeIntersectsVictim,
   executionFacingYaw,
   executionWeaponPath,
+  guardWeaponPath,
   parryWeaponPath,
 } from "./weaponMotion";
 
@@ -33,11 +34,42 @@ describe("paired weapon motion", () => {
   });
 
   it("keeps the complete parry arc in front of either fighter", () => {
+    const rightShoulder = { x: -0.064, y: 1.286, z: -0.241 };
+    const safeReach = 0.547 * 0.92;
     for (let step = 0; step <= 20; step += 1) {
       const path = parryWeaponPath(step / 20);
       expect(path.grip.z).toBeGreaterThanOrEqual(0.2);
       expect(path.tip.z).toBeGreaterThanOrEqual(0.2);
       expect(bladeCenter(path).z).toBeGreaterThan(0.2);
+      expect(path.grip.x).toBeLessThan(0);
+      expect(Math.hypot(
+        path.grip.x - rightShoulder.x,
+        path.grip.y - rightShoulder.y,
+        path.grip.z - rightShoulder.z,
+      )).toBeLessThan(safeReach);
     }
+  });
+
+  it("holds guard below the shoulders with a vertical two-handed hilt", () => {
+    const path = guardWeaponPath();
+    const rightShoulder = { x: -0.212, y: 1.409, z: -0.156 };
+    const leftShoulder = { x: 0.164, y: 1.415, z: -0.055 };
+    const safeReach = 0.547 * 0.92;
+    expect(path.grip.y).toBeLessThan(1.441);
+    expect(path.offHand.y).toBeLessThan(path.grip.y);
+    expect(path.grip.y - path.offHand.y).toBeGreaterThanOrEqual(0.12);
+    expect(path.tip.x).toBe(path.grip.x);
+    expect(path.tip.z).toBe(path.grip.z);
+    expect(path.tip.y - path.grip.y).toBeCloseTo(1.19);
+    expect(Math.hypot(
+      path.grip.x - rightShoulder.x,
+      path.grip.y - rightShoulder.y,
+      path.grip.z - rightShoulder.z,
+    )).toBeLessThan(safeReach);
+    expect(Math.hypot(
+      path.offHand.x - leftShoulder.x,
+      path.offHand.y - leftShoulder.y,
+      path.offHand.z - leftShoulder.z,
+    )).toBeLessThan(safeReach);
   });
 });

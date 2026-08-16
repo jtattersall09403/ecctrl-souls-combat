@@ -5,6 +5,34 @@ export const CRITICAL_DAMAGE_MULTIPLIER = 2;
 export const CRITICAL_ATTACK_DAMAGE = LIGHT_ATTACK_BASE_DAMAGE * CRITICAL_DAMAGE_MULTIPLIER;
 
 export type ComboInput = "light" | "heavy";
+export const LIGHT_COMBO_CLIP = "Sword_Attack";
+
+// The source animation contains two complementary cuts. These ranges split it
+// at stable contact poses so each gameplay phase follows the blade itself.
+export const LIGHT_COMBO_PLAYBACK = {
+  LIGHT_1: { sourceOffset: 0, windupEnd: 10 / 30, activeEnd: 17 / 30, recoveryEnd: 23 / 30, windup: 0.18, active: 0.34, recovery: 0.2 },
+  LIGHT_2: { sourceOffset: 17 / 30, windupEnd: 23 / 30, activeEnd: 38 / 30, recoveryEnd: 42 / 30, windup: 0.1, active: 0.36, recovery: 0.18 },
+  LIGHT_3: { sourceOffset: 0, windupEnd: 10 / 30, activeEnd: 17 / 30, recoveryEnd: 23 / 30, windup: 0.18, active: 0.42, recovery: 0.34 },
+} as const;
+
+export function sampleLightClipTime(
+  animation: keyof typeof LIGHT_COMBO_PLAYBACK,
+  elapsed: number,
+) {
+  const playback = LIGHT_COMBO_PLAYBACK[animation];
+  const interpolate = (from: number, to: number, amount: number) => from + (to - from) * Math.min(1, Math.max(0, amount));
+  if (elapsed <= playback.windup) {
+    return interpolate(playback.sourceOffset, playback.windupEnd, elapsed / playback.windup);
+  }
+  if (elapsed <= playback.windup + playback.active) {
+    return interpolate(playback.windupEnd, playback.activeEnd, (elapsed - playback.windup) / playback.active);
+  }
+  return interpolate(
+    playback.activeEnd,
+    playback.recoveryEnd,
+    (elapsed - playback.windup - playback.active) / playback.recovery,
+  );
+}
 
 // Timings are data, not branches in the controller. A new weapon can supply a
 // complete moveset without changing the combat state machine.
@@ -17,9 +45,9 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "LIGHT_1",
       damage: LIGHT_ATTACK_BASE_DAMAGE,
       stamina: 22,
-      windup: 0.18,
-      active: 0.28,
-      recovery: 0.22,
+      windup: LIGHT_COMBO_PLAYBACK.LIGHT_1.windup,
+      active: LIGHT_COMBO_PLAYBACK.LIGHT_1.active,
+      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_1.recovery,
       range: 2.05,
       arc: 1.4,
       lunge: 1.45,
@@ -30,9 +58,9 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "LIGHT_2",
       damage: 29,
       stamina: 24,
-      windup: 0.16,
-      active: 0.3,
-      recovery: 0.26,
+      windup: LIGHT_COMBO_PLAYBACK.LIGHT_2.windup,
+      active: LIGHT_COMBO_PLAYBACK.LIGHT_2.active,
+      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_2.recovery,
       range: 2.15,
       arc: 1.28,
       lunge: 1.6,
@@ -43,12 +71,12 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "LIGHT_3",
       damage: 34,
       stamina: 26,
-      windup: 0.2,
-      active: 0.3,
-      recovery: 0.36,
+      windup: LIGHT_COMBO_PLAYBACK.LIGHT_3.windup,
+      active: LIGHT_COMBO_PLAYBACK.LIGHT_3.active,
+      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_3.recovery,
       range: 2.2,
       arc: 0.82,
-      lunge: 1.55,
+      lunge: 1.85,
       hitStop: 0.075,
     },
     heavy: {
@@ -124,9 +152,26 @@ export function comboTransitionTime(attack: WeaponDefinition["attacks"]["light1"
   return attack.windup + attack.active;
 }
 
-/** A chained attack enters at the start of its active swing, skipping its standalone windup. */
-export function comboEntryTime(attack: WeaponDefinition["attacks"]["light1"]) {
-  return attack.windup;
+/** A queued successor starts at its authored chain-entry pose. */
+export function comboEntryTime(_attack: WeaponDefinition["attacks"]["light1"]) {
+  return 0;
+}
+
+export function comboQueueOpen(
+  elapsed: number,
+  previousElapsed: number,
+  attack: WeaponDefinition["attacks"]["light1"],
+) {
+  const phase = phaseAt(elapsed, attack);
+  return phase === "active"
+    || (phase === "recovery" && phaseAt(previousElapsed, attack) === "active");
+}
+
+export function comboSuccessorStartTime(
+  elapsed: number,
+  attack: WeaponDefinition["attacks"]["light1"],
+) {
+  return Math.max(0, elapsed - comboTransitionTime(attack));
 }
 
 export function hitReactionForAttack(attack: WeaponDefinition["attacks"]["light1"] | null): {

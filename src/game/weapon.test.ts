@@ -3,8 +3,12 @@ import {
   COMBAT_TUNING,
   CRITICAL_ATTACK_DAMAGE,
   CRITICAL_DAMAGE_MULTIPLIER,
+  LIGHT_COMBO_CLIP,
+  LIGHT_COMBO_PLAYBACK,
   STRAIGHT_SWORD,
   comboEntryTime,
+  comboQueueOpen,
+  comboSuccessorStartTime,
   comboTransitionTime,
   getComboSuccessor,
   hitReactionForAttack,
@@ -13,6 +17,7 @@ import {
   isRollInvulnerable,
   isWeaponHitboxActive,
   phaseAt,
+  sampleLightClipTime,
 } from "./weapon";
 
 describe("straight sword moveset", () => {
@@ -54,7 +59,7 @@ describe("straight sword moveset", () => {
     expect(heavy.stamina + heavy2.stamina).toBe(93);
   });
 
-  it("branches directly from each active swing into the next chained swing", () => {
+  it("queues during a swing, then starts each complete successor after that swing", () => {
     const { light1, light2, light3 } = STRAIGHT_SWORD.attacks;
     expect(getComboSuccessor(light1, "light")).toBe(light2);
     expect(getComboSuccessor(light2, "light")).toBe(light3);
@@ -64,17 +69,69 @@ describe("straight sword moveset", () => {
       phaseAt(0, light1),
       phaseAt(light1.windup + 0.01, light1),
       phaseAt(comboEntryTime(light2), light2),
+      phaseAt(light2.windup + 0.01, light2),
       phaseAt(comboEntryTime(light3), light3),
+      phaseAt(light3.windup + 0.01, light3),
       phaseAt(comboTransitionTime(light3) + 0.01, light3),
     ];
-    expect(phaseSequence).toEqual(["windup", "active", "active", "active", "recovery"]);
+    expect(phaseSequence).toEqual(["windup", "active", "windup", "active", "windup", "active", "recovery"]);
     expect(phaseAt(comboTransitionTime(light1) - 0.001, light1)).toBe("active");
-    expect(phaseAt(comboEntryTime(light2), light2)).toBe("active");
+    expect(comboEntryTime(light2)).toBe(0);
+    expect(phaseAt(comboEntryTime(light2), light2)).toBe("windup");
+  });
+
+  it("keeps the full authored light swing active until recovery begins", () => {
+    for (const attack of [
+      STRAIGHT_SWORD.attacks.light1,
+      STRAIGHT_SWORD.attacks.light2,
+      STRAIGHT_SWORD.attacks.light3,
+    ]) {
+      expect(isWeaponHitboxActive(attack.windup, attack)).toBe(true);
+      expect(isWeaponHitboxActive(comboTransitionTime(attack) - 0.001, attack)).toBe(true);
+      expect(isWeaponHitboxActive(comboTransitionTime(attack), attack)).toBe(false);
+    }
+  });
+
+  it("maps each light phase to a complete authored source segment", () => {
+    const attacks = STRAIGHT_SWORD.attacks;
+    for (const [animation, attack] of [
+      ["LIGHT_1", attacks.light1],
+      ["LIGHT_2", attacks.light2],
+      ["LIGHT_3", attacks.light3],
+    ] as const) {
+      const source = LIGHT_COMBO_PLAYBACK[animation];
+      expect(sampleLightClipTime(animation, 0)).toBeCloseTo(source.sourceOffset);
+      expect(sampleLightClipTime(animation, attack.windup)).toBeCloseTo(source.windupEnd);
+      expect(sampleLightClipTime(animation, attack.windup + attack.active)).toBeCloseTo(source.activeEnd);
+      expect(sampleLightClipTime(animation, attack.windup + attack.active + attack.recovery)).toBeCloseTo(source.recoveryEnd);
+      expect(sampleLightClipTime(animation, -1)).toBeCloseTo(source.sourceOffset);
+      expect(sampleLightClipTime(animation, 10)).toBeCloseTo(source.recoveryEnd);
+    }
+  });
+
+  it("joins the first cut to the complete reverse cut at the same source pose", () => {
+    expect(LIGHT_COMBO_CLIP).toBe("Sword_Attack");
+    expect(LIGHT_COMBO_PLAYBACK.LIGHT_1.activeEnd).toBe(LIGHT_COMBO_PLAYBACK.LIGHT_2.sourceOffset);
+  });
+
+  it("accepts queue input only during the current swing and carries frame overshoot", () => {
+    const attack = STRAIGHT_SWORD.attacks.light1;
+    const transition = comboTransitionTime(attack);
+    expect(comboQueueOpen(attack.windup - 0.001, attack.windup - 0.01, attack)).toBe(false);
+    expect(comboQueueOpen(attack.windup, attack.windup - 0.01, attack)).toBe(true);
+    expect(comboQueueOpen(transition - 0.001, transition - 0.01, attack)).toBe(true);
+    expect(comboQueueOpen(transition + 0.002, transition - 0.001, attack)).toBe(true);
+    expect(comboQueueOpen(transition + 0.004, transition + 0.002, attack)).toBe(false);
+    // A hit-stop-sized combat step grants only the frame that crossed the boundary.
+    expect(comboQueueOpen(transition + 0.0008, transition - 0.0008, attack)).toBe(true);
+    expect(comboQueueOpen(transition + 0.0016, transition + 0.0008, attack)).toBe(false);
+    expect(comboSuccessorStartTime(transition + 0.012, attack)).toBeCloseTo(0.012);
   });
 
   it("supports the heavy successor and rejects unrelated combo inputs", () => {
     const { light1, heavy, heavy2 } = STRAIGHT_SWORD.attacks;
     expect(getComboSuccessor(heavy, "heavy")).toBe(heavy2);
+    expect(comboEntryTime(heavy2)).toBe(0);
     expect(getComboSuccessor(light1, "heavy")).toBeNull();
     expect(getComboSuccessor(heavy, "light")).toBeNull();
     expect(getComboSuccessor(heavy2, "heavy")).toBeNull();
