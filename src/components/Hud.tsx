@@ -127,7 +127,6 @@ export function Hud() {
       </section>
 
       {state.damagePulse > 0 && <div key={state.damagePulse} className="damage-vignette" aria-hidden="true" />}
-      {state.lockedOn && state.enemyHealth > 0 && <div className="lock-reticle" aria-label="Target locked"><span /></div>}
       {state.message && <div className={`combat-message ${(dead || won) ? "major" : ""}`}>{state.message}</div>}
 
       <section className="quick-slots" aria-label="Equipment">
@@ -194,7 +193,7 @@ export function Hud() {
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
             </dl>
           </div>
-          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Chain R or ZR presses during attack recovery for light and heavy combos. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
+          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Press R or ZR again during the current swing to chain without recovering between attacks. An attack pressed during a roll comes out as the roll ends. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
         </aside>
       )}
 

@@ -71,22 +71,30 @@ export function combatPoseAt(animation: AnimationState, elapsed: number): Combat
     pose.rightArmZ = -0.2 * swing;
     pose.weaponRoll = -0.2 * swing;
   } else if (animation === "LIGHT_2") {
-    // A left-to-right backswing that starts where the first cut finishes.
-    const swing = Math.sin(Math.PI * p);
-    pose.bodyYaw = 0.58 * swing;
-    pose.rightArmY = -0.72 * swing;
-    pose.rightArmZ = 0.45 * swing;
-    pose.rightForearmX = -0.28 * swing;
-    pose.weaponYaw = -0.48 * swing;
+    // The active entry matches LIGHT_1 at the end of its active window, then
+    // immediately carries that cut into the opposing backswing.
+    const swing = segment(p, 0.22, 0.64);
+    const recover = segment(p, 0.64, 1);
+    const hold = 1 - recover;
+    pose.bodyYaw = (-0.12 + 0.64 * swing) * hold;
+    pose.rightArmY = -0.65 * swing * hold;
+    pose.rightArmZ = (-0.12 + 0.54 * swing) * hold;
+    pose.rightForearmX = -0.28 * swing * hold;
+    pose.weaponRoll = -0.12 * (1 - swing) * hold;
+    pose.weaponYaw = -0.48 * swing * hold;
   } else if (animation === "LIGHT_3") {
-    const lift = segment(p, 0, 0.3) * (1 - segment(p, 0.46, 0.76));
-    const finish = segment(p, 0.34, 0.68) * (1 - segment(p, 0.76, 1));
-    pose.bodyPitch = -0.2 * lift + 0.34 * finish;
-    pose.bodyYaw = -0.38 * lift + 0.28 * finish;
-    pose.rightArmX = -0.72 * lift + 0.48 * finish;
-    pose.rightArmZ = -0.55 * lift;
-    pose.leftArmX = -0.32 * lift;
-    pose.weaponPitch = -0.35 * lift;
+    // Start at LIGHT_2's released pose and turn it into the larger finisher.
+    const finish = segment(p, 0.23, 0.58);
+    const recover = segment(p, 0.58, 1);
+    const hold = 1 - recover;
+    pose.bodyPitch = 0.48 * finish * hold;
+    pose.bodyYaw = (0.52 - 0.86 * finish) * hold;
+    pose.rightArmX = 0.58 * finish * hold;
+    pose.rightArmY = -0.65 * (1 - finish) * hold;
+    pose.rightArmZ = (0.42 - 0.62 * finish) * hold;
+    pose.rightForearmX = -0.28 * (1 - finish) * hold;
+    pose.leftArmX = -0.34 * finish * hold;
+    pose.weaponYaw = -0.48 * (1 - finish) * hold;
   } else if (animation === "HEAVY" || animation === "HEAVY_2") {
     const charge = segment(p, 0, 0.4) * (1 - segment(p, 0.48, 0.72));
     const release = segment(p, 0.42, 0.7) * (1 - segment(p, 0.78, 1));
@@ -125,11 +133,10 @@ export function combatPoseAt(animation: AnimationState, elapsed: number): Combat
     pose.weaponPitch = (Math.PI / 2) * (0.35 * draw + 0.65 * thrust) * (1 - 0.15 * withdraw);
     pose.weaponForward = 0.5 * extension - 0.18 * withdraw;
   } else if (animation === "BACKSTABBED") {
-    const recoil = bell(clamp01(p / 0.3), 0.45);
-    const fall = segment(p, 0.34, 0.58);
-    const rise = segment(p, 0.76, 1);
-    pose.modelPitch = -0.2 * recoil + 1.18 * fall * (1 - rise);
-    pose.modelY = -0.5 * fall * (1 - rise);
+    // The victim only recoils while the blade is in. Falling and getting up
+    // are played by Death01 forward/reversed after withdrawal.
+    const recoil = bell(clamp01(p / 0.48), 0.45);
+    pose.modelPitch = -0.16 * recoil;
     pose.bodyPitch = -0.24 * recoil;
   }
 

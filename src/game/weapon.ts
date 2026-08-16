@@ -1,4 +1,10 @@
-import type { WeaponDefinition } from "./types";
+import type { AnimationState, CombatAction, WeaponDefinition } from "./types";
+
+export const LIGHT_ATTACK_BASE_DAMAGE = 24;
+export const CRITICAL_DAMAGE_MULTIPLIER = 2;
+export const CRITICAL_ATTACK_DAMAGE = LIGHT_ATTACK_BASE_DAMAGE * CRITICAL_DAMAGE_MULTIPLIER;
+
+export type ComboInput = "light" | "heavy";
 
 // Timings are data, not branches in the controller. A new weapon can supply a
 // complete moveset without changing the combat state machine.
@@ -9,7 +15,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
     light1: {
       id: "light1",
       animation: "LIGHT_1",
-      damage: 24,
+      damage: LIGHT_ATTACK_BASE_DAMAGE,
       stamina: 22,
       windup: 0.18,
       active: 0.28,
@@ -77,7 +83,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
     riposte: {
       id: "riposte",
       animation: "RIPOSTE",
-      damage: 82,
+      damage: CRITICAL_ATTACK_DAMAGE,
       stamina: 0,
       windup: 0.22,
       active: 0.38,
@@ -90,7 +96,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
     backstab: {
       id: "backstab",
       animation: "BACKSTAB",
-      damage: 85,
+      damage: CRITICAL_ATTACK_DAMAGE,
       stamina: 0,
       windup: 0.38,
       active: 0.45,
@@ -102,6 +108,36 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
     },
   },
 };
+
+export function getComboSuccessor(
+  current: WeaponDefinition["attacks"]["light1"],
+  queued: ComboInput | null,
+) {
+  if (queued === "light" && current.id === "light1") return STRAIGHT_SWORD.attacks.light2;
+  if (queued === "light" && current.id === "light2") return STRAIGHT_SWORD.attacks.light3;
+  if (queued === "heavy" && current.id === "heavy") return STRAIGHT_SWORD.attacks.heavy2;
+  return null;
+}
+
+/** The current attack branches into its queued successor as its active swing ends. */
+export function comboTransitionTime(attack: WeaponDefinition["attacks"]["light1"]) {
+  return attack.windup + attack.active;
+}
+
+/** A chained attack enters at the start of its active swing, skipping its standalone windup. */
+export function comboEntryTime(attack: WeaponDefinition["attacks"]["light1"]) {
+  return attack.windup;
+}
+
+export function hitReactionForAttack(attack: WeaponDefinition["attacks"]["light1"] | null): {
+  action: Extract<CombatAction, "hit" | "hitHeavy">;
+  animation: Extract<AnimationState, "HIT" | "HIT_HEAVY">;
+} {
+  const heavy = attack?.id === "heavy" || attack?.id === "heavy2";
+  return heavy
+    ? { action: "hitHeavy", animation: "HIT_HEAVY" }
+    : { action: "hit", animation: "HIT" };
+}
 
 export const COMBAT_TUNING = {
   maxHealth: 100,

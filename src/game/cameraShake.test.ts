@@ -14,6 +14,17 @@ describe("hit camera shake", () => {
     expect(HIT_SHAKE_PROFILES.execution.position).toBeGreaterThan(HIT_SHAKE_PROFILES.playerHeavyHit.position);
   });
 
+  it("uses a valid landing impulse that is subtler than a normal hit", () => {
+    const landing = createHitShake("landing", 5);
+    expect(landing.profile).toEqual(HIT_SHAKE_PROFILES.landing);
+    expect(landing.profile.duration).toBeGreaterThan(0);
+    expect(landing.profile.position).toBeGreaterThan(0);
+    expect(landing.profile.rotation).toBeGreaterThan(0);
+    expect(landing.profile.duration).toBeLessThan(HIT_SHAKE_PROFILES.enemyHit.duration);
+    expect(landing.profile.position).toBeLessThan(HIT_SHAKE_PROFILES.enemyHit.position);
+    expect(landing.profile.rotation).toBeLessThan(HIT_SHAKE_PROFILES.enemyHit.rotation);
+  });
+
   it("has a fast attack and decays completely by the end of the impulse", () => {
     const duration = HIT_SHAKE_PROFILES.playerHit.duration;
     expect(hitShakeEnvelope(0, duration)).toBe(0);

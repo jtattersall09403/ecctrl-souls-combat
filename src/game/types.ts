@@ -17,6 +17,7 @@ export type CombatAction =
   | "equip"
   | "unequip"
   | "hit"
+  | "hitHeavy"
   | "guardBreak"
   | "dead";
 
@@ -45,7 +46,9 @@ export type AnimationState =
   | "EQUIP"
   | "UNEQUIP"
   | "HIT"
+  | "HIT_HEAVY"
   | "GUARD_BREAK"
+  | "GET_UP"
   | "DEATH";
 
 export type AttackDefinition = {

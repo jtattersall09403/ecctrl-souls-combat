@@ -5,8 +5,10 @@ import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { combatPoseAt } from "../game/combatPose";
 import type { AnimationState } from "../game/types";
+import { executionWeaponPath, parryWeaponPath } from "../game/weaponMotion";
 
 type ClipSettings = { clip: string; loop?: boolean; speed?: number; fade?: number };
+const UP = new THREE.Vector3(0, 1, 0);
 
 const CLIPS: Record<AnimationState, ClipSettings> = {
   IDLE: { clip: "Idle_Loop", loop: true },
@@ -28,13 +30,15 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   PARRY: { clip: "Sword_Idle", loop: true, fade: 0.04 },
   RIPOSTE: { clip: "Sword_Idle", loop: true, fade: 0.04 },
   BACKSTAB: { clip: "Sword_Idle", loop: true, fade: 0.04 },
-  BACKSTABBED: { clip: "Sword_Idle", loop: true, fade: 0.03 },
+  BACKSTABBED: { clip: "Hit_Chest", speed: 0.75, fade: 0.03 },
   HEAL: { clip: "Spell_Simple_Shoot", speed: 0.72 },
   EQUIP: { clip: "Interact", speed: 1.25 },
   UNEQUIP: { clip: "Interact", speed: 1.25 },
   HIT: { clip: "Hit_Chest", speed: 1.15, fade: 0.03 },
+  HIT_HEAVY: { clip: "Hit_Head", speed: 0.72, fade: 0.03 },
   GUARD_BREAK: { clip: "Hit_Head", speed: 0.72, fade: 0.03 },
-  DEATH: { clip: "Death01", speed: 0.72, fade: 0.08 },
+  GET_UP: { clip: "Death01", speed: -1.45, fade: 0.06 },
+  DEATH: { clip: "Death01", speed: 1.6, fade: 0.08 },
 };
 
 function makeSword() {
@@ -65,11 +69,17 @@ export function AnimatedFighter({
   equipped,
   enemy = false,
   weaponRef,
+  animationStartAt = 0,
+  animationEpoch = 0,
+  modelOffsetY = -0.9,
 }: {
   animation: AnimationState;
   equipped: boolean;
   enemy?: boolean;
   weaponRef?: MutableRefObject<THREE.Object3D | null>;
+  animationStartAt?: number;
+  animationEpoch?: number;
+  modelOffsetY?: number;
 }) {
   const gltf = useGLTF(`${import.meta.env.BASE_URL}AnimationLibrary.glb`);
   const model = useMemo(() => clone(gltf.scene), [gltf.scene]);
@@ -86,6 +96,22 @@ export function AnimatedFighter({
   const desiredWeaponQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const inverseHandQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const weaponTranslation = useMemo(() => new THREE.Vector3(), []);
+  const worldGrip = useMemo(() => new THREE.Vector3(), []);
+  const worldTip = useMemo(() => new THREE.Vector3(), []);
+  const desiredMountPosition = useMemo(() => new THREE.Vector3(), []);
+  const bladeDirection = useMemo(() => new THREE.Vector3(), []);
+  const shoulderPosition = useMemo(() => new THREE.Vector3(), []);
+  const elbowPosition = useMemo(() => new THREE.Vector3(), []);
+  const handPosition = useMemo(() => new THREE.Vector3(), []);
+  const desiredElbow = useMemo(() => new THREE.Vector3(), []);
+  const targetDirection = useMemo(() => new THREE.Vector3(), []);
+  const currentDirection = useMemo(() => new THREE.Vector3(), []);
+  const poleDirection = useMemo(() => new THREE.Vector3(), []);
+  const upperWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const forearmWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const parentWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const desiredBoneQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const rotationDelta = useMemo(() => new THREE.Quaternion(), []);
   const bones = useMemo(() => {
     // GLTFLoader sanitizes dots from node names; accepting both forms also
     // keeps this component compatible with loaders that preserve source names.
@@ -144,20 +170,26 @@ export function AnimatedFighter({
   }, [equipped, sword]);
 
   useEffect(() => {
-    actionElapsed.current = 0;
+    actionElapsed.current = animationStartAt;
     const settings = CLIPS[animation];
     const next = actions[settings.clip];
-    if (!next || next === previous.current) return;
+    if (!next) return;
     const fade = settings.fade ?? 0.12;
+    const sameAction = next === previous.current;
     next.reset();
     next.enabled = true;
-    next.timeScale = settings.speed ?? 1;
+    const speed = settings.speed ?? 1;
+    next.timeScale = speed;
+    const clipDuration = next.getClip().duration;
+    next.time = speed < 0
+      ? Math.max(0, clipDuration - animationStartAt * Math.abs(speed))
+      : Math.min(clipDuration, animationStartAt * speed);
     next.clampWhenFinished = !settings.loop;
     next.setLoop(settings.loop ? THREE.LoopRepeat : THREE.LoopOnce, settings.loop ? Infinity : 1);
-    if (previous.current) next.crossFadeFrom(previous.current, fade, true);
+    if (previous.current && !sameAction) next.crossFadeFrom(previous.current, fade, true);
     next.play();
     previous.current = next;
-  }, [actions, animation]);
+  }, [actions, animation, animationEpoch, animationStartAt]);
 
   useFrame((_, delta) => {
     actionElapsed.current += Math.min(delta, 1 / 30);
@@ -178,21 +210,75 @@ export function AnimatedFighter({
       visual.current.position.y = pose.modelY;
       visual.current.rotation.set(pose.modelPitch, 0, 0);
     }
-    if ((animation === "BACKSTAB" || animation === "RIPOSTE") && visual.current && bones.rightHand) {
-      // Keep the critical blade aimed along the fighter's forward axis even
-      // though the hand bone uses a character-rig-specific local basis.
+    if ((animation === "BACKSTAB" || animation === "RIPOSTE" || animation === "PARRY") && visual.current && bones.rightArm && bones.rightForearm && bones.rightHand) {
+      const duration = animation === "PARRY" ? 0.66 : animation === "BACKSTAB" ? 1.36 : 1.06;
+      const progress = THREE.MathUtils.clamp(actionElapsed.current / duration, 0, 1);
+      const path = animation === "PARRY" ? parryWeaponPath(progress) : executionWeaponPath(progress);
+      const fadeIn = THREE.MathUtils.smoothstep(progress, 0, animation === "PARRY" ? 0.08 : 0.12);
+      const fadeOut = 1 - THREE.MathUtils.smoothstep(progress, animation === "PARRY" ? 0.72 : 0.84, 1);
+      const constraintWeight = fadeIn * fadeOut;
+
       root.current?.updateWorldMatrix(true, true);
-      bones.rightHand.getWorldQuaternion(handWorldQuaternion);
+      worldGrip.set(path.grip.x, path.grip.y, path.grip.z);
+      worldTip.set(path.tip.x, path.tip.y, path.tip.z);
+      visual.current.localToWorld(worldGrip);
+      visual.current.localToWorld(worldTip);
+
+      // Analytic two-bone IK brings the hand to the authored world-space grip.
+      // The pole stays on the fighter's right side so the elbow bends naturally.
+      bones.rightArm.getWorldPosition(shoulderPosition);
+      bones.rightForearm.getWorldPosition(elbowPosition);
+      bones.rightHand.getWorldPosition(handPosition);
+      const upperLength = shoulderPosition.distanceTo(elbowPosition);
+      const forearmLength = elbowPosition.distanceTo(handPosition);
+      targetDirection.copy(worldGrip).sub(shoulderPosition);
+      const targetDistance = THREE.MathUtils.clamp(targetDirection.length(), Math.abs(upperLength - forearmLength) + 0.001, upperLength + forearmLength - 0.001);
+      targetDirection.normalize();
       visual.current.getWorldQuaternion(visualWorldQuaternion);
+      poleDirection.set(-1, 0, -0.15).applyQuaternion(visualWorldQuaternion);
+      poleDirection.addScaledVector(targetDirection, -poleDirection.dot(targetDirection));
+      if (poleDirection.lengthSq() < 0.0001) poleDirection.set(0, 1, 0);
+      poleDirection.normalize();
+      const along = (upperLength * upperLength - forearmLength * forearmLength + targetDistance * targetDistance) / (2 * targetDistance);
+      const perpendicular = Math.sqrt(Math.max(0, upperLength * upperLength - along * along));
+      desiredElbow.copy(shoulderPosition)
+        .addScaledVector(targetDirection, along)
+        .addScaledVector(poleDirection, perpendicular);
+
+      currentDirection.copy(elbowPosition).sub(shoulderPosition).normalize();
+      targetDirection.copy(desiredElbow).sub(shoulderPosition).normalize();
+      bones.rightArm.getWorldQuaternion(upperWorldQuaternion);
+      rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
+      desiredBoneQuaternion.copy(rotationDelta).multiply(upperWorldQuaternion);
+      bones.rightArm.parent?.getWorldQuaternion(parentWorldQuaternion);
+      desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
+      bones.rightArm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
+      bones.rightArm.updateWorldMatrix(true, true);
+
+      bones.rightForearm.getWorldPosition(elbowPosition);
+      bones.rightHand.getWorldPosition(handPosition);
+      currentDirection.copy(handPosition).sub(elbowPosition).normalize();
+      targetDirection.copy(worldGrip).sub(elbowPosition).normalize();
+      bones.rightForearm.getWorldQuaternion(forearmWorldQuaternion);
+      rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
+      desiredBoneQuaternion.copy(rotationDelta).multiply(forearmWorldQuaternion);
+      bones.rightForearm.parent?.getWorldQuaternion(parentWorldQuaternion);
+      desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
+      bones.rightForearm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
+      root.current?.updateWorldMatrix(true, true);
+
+      // The sword's local +Y axis is its blade. Resolve the desired world pose
+      // back into hand space after IK, avoiding the rig's unintuitive Euler axes.
+      bladeDirection.copy(worldTip).sub(worldGrip).normalize();
+      desiredWeaponQuaternion.setFromUnitVectors(UP, bladeDirection);
+      bones.rightHand.getWorldQuaternion(handWorldQuaternion);
       inverseHandQuaternion.copy(handWorldQuaternion).invert();
-      poseEuler.set(Math.PI / 2, 0, 0);
-      desiredWeaponQuaternion.setFromEuler(poseEuler).premultiply(visualWorldQuaternion).premultiply(inverseHandQuaternion);
-      const alignment = THREE.MathUtils.clamp(pose.weaponPitch / (Math.PI / 2), 0, 1);
-      weaponMount.quaternion.identity().slerp(desiredWeaponQuaternion, alignment);
-      weaponTranslation.set(0, 0, pose.weaponForward)
-        .applyQuaternion(visualWorldQuaternion)
-        .applyQuaternion(inverseHandQuaternion);
-      weaponMount.position.copy(weaponTranslation);
+      desiredWeaponQuaternion.premultiply(inverseHandQuaternion);
+      weaponTranslation.copy(worldGrip);
+      bones.rightHand.worldToLocal(weaponTranslation);
+      desiredMountPosition.copy(weaponTranslation);
+      weaponMount.position.set(0, 0.04, 0.015).lerp(desiredMountPosition, constraintWeight);
+      weaponMount.quaternion.identity().slerp(desiredWeaponQuaternion, constraintWeight);
     } else {
       weaponMount.position.set(0, 0.04, 0.015 + pose.weaponForward);
       weaponMount.rotation.set(pose.weaponPitch, pose.weaponYaw, pose.weaponRoll);
@@ -200,7 +286,7 @@ export function AnimatedFighter({
   });
 
   return (
-    <group ref={root} position={[0, -0.94, 0]} dispose={null}>
+    <group ref={root} position={[0, modelOffsetY, 0]} dispose={null}>
       <group ref={visual}>
         <primitive object={model} />
       </group>
