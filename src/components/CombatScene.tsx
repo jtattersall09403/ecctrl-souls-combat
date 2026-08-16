@@ -4,6 +4,7 @@ import { Ecctrl, type EcctrlHandle } from "ecctrl";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { combatAudio } from "../game/audio";
+import { createHitShake, sampleHitShake, type HitShakeImpulse, type HitShakeKind } from "../game/cameraShake";
 import { analogueMoveSpeed, cameraRelativeDirection, input } from "../game/input";
 import { useGameStore } from "../game/store";
 import type { AnimationState, AttackDefinition, CombatAction } from "../game/types";
@@ -89,6 +90,7 @@ function Battle() {
     desiredCamera: new THREE.Vector3(),
     desiredLook: new THREE.Vector3(),
     forward: new THREE.Vector3(),
+    cameraRight: new THREE.Vector3(),
     quaternion: new THREE.Quaternion(),
   });
   const { camera } = useThree();
@@ -98,7 +100,8 @@ function Battle() {
   const messageTimer = useRef(0);
   const message = useRef("");
   const hitStop = useRef(0);
-  const shake = useRef(0);
+  const shake = useRef<HitShakeImpulse | null>(null);
+  const shakeSeed = useRef(0);
 
   const setAnim = useCallback((target: "player" | "enemy", animation: AnimationState) => {
     const ref = target === "player" ? playerAnimationRef : enemyAnimationRef;
@@ -112,6 +115,19 @@ function Battle() {
     message.current = text;
     messageTimer.current = duration;
   }, []);
+
+  const triggerShake = useCallback((kind: HitShakeKind, worldDirection?: { x: number; z: number }) => {
+    let side = 0;
+    if (worldDirection) {
+      const length = Math.hypot(worldDirection.x, worldDirection.z);
+      if (length > 0.001) {
+        const right = tmp.current.cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize();
+        side = right.x * (worldDirection.x / length) + right.z * (worldDirection.z / length);
+      }
+    }
+    shakeSeed.current += 1;
+    shake.current = createHitShake(kind, shakeSeed.current, side);
+  }, [camera]);
 
   const setEnemyMode = useCallback((mode: EnemyMode, animation: AnimationState) => {
     enemyMode.current = mode;
@@ -149,7 +165,11 @@ function Battle() {
   const damageEnemy = useCallback((damage: number, execution: "riposte" | "backstab" | null = null) => {
     enemyHealth.current = Math.max(0, enemyHealth.current - damage);
     hitStop.current = execution ? playerAttack.current?.hitStop ?? 0.13 : playerAttack.current?.hitStop ?? 0.055;
-    shake.current = execution ? 0.42 : 0.22;
+    const handle = player.current;
+    triggerShake(execution ? "execution" : "enemyHit", handle ? {
+      x: enemyPosition.current.x - handle.currPos.x,
+      z: enemyPosition.current.z - handle.currPos.z,
+    } : undefined);
     combatAudio.play(enemyHealth.current <= 0 ? "death" : "hit");
     if (enemyHealth.current <= 0) {
       setEnemyMode("dead", "DEATH");
@@ -159,7 +179,7 @@ function Battle() {
     } else {
       setEnemyMode("stagger", "HIT");
     }
-  }, [announce, setEnemyMode]);
+  }, [announce, setEnemyMode, triggerShake]);
 
   const attemptEnemyHit = useCallback(() => {
     if (enemyAttackHit.current || playerHealth.current <= 0) return;
@@ -177,7 +197,10 @@ function Battle() {
       setEnemyMode("parried", "GUARD_BREAK");
       combatAudio.play("parry");
       announce("PARRY — LIGHT ATTACK TO RIPOSTE", 1.5);
-      shake.current = 0.34;
+      triggerShake("parry", {
+        x: handle.currPos.x - enemyPosition.current.x,
+        z: handle.currPos.z - enemyPosition.current.z,
+      });
       return;
     }
     if ((playerAction.current === "roll" || playerAction.current === "backstep") && isRollInvulnerable(playerActionTime.current)) return;
@@ -190,7 +213,10 @@ function Battle() {
         playerHealth.current = Math.max(0, playerHealth.current - chip);
         staminaCooldown.current = 1;
         combatAudio.play("guard");
-        shake.current = 0.18;
+        triggerShake("block", {
+          x: handle.currPos.x - enemyPosition.current.x,
+          z: handle.currPos.z - enemyPosition.current.z,
+        });
         announce("BLOCKED");
         return;
       }
@@ -198,12 +224,19 @@ function Battle() {
       playerHealth.current = Math.max(0, playerHealth.current - 18);
       startPlayerAction("guardBreak", "GUARD_BREAK");
       combatAudio.play("hit");
+      triggerShake("playerHit", {
+        x: handle.currPos.x - enemyPosition.current.x,
+        z: handle.currPos.z - enemyPosition.current.z,
+      });
       announce("GUARD BROKEN");
       return;
     }
 
     playerHealth.current = Math.max(0, playerHealth.current - 27);
-    shake.current = 0.46;
+    triggerShake("playerHit", {
+      x: handle.currPos.x - enemyPosition.current.x,
+      z: handle.currPos.z - enemyPosition.current.z,
+    });
     combatAudio.play(playerHealth.current <= 0 ? "death" : "hit");
     if (playerHealth.current <= 0) {
       startPlayerAction("dead", "DEATH");
@@ -211,7 +244,7 @@ function Battle() {
     } else {
       startPlayerAction("hit", "HIT");
     }
-  }, [announce, setEnemyMode, startPlayerAction]);
+  }, [announce, setEnemyMode, startPlayerAction, triggerShake]);
 
   useEffect(() => input.attach(), []);
   useEffect(() => {
@@ -223,7 +256,8 @@ function Battle() {
   useFrame((_, rawDelta) => {
     if (!started) return;
     input.update();
-    let delta = Math.min(rawDelta, 1 / 30);
+    const frameDelta = Math.min(rawDelta, 1 / 30);
+    let delta = frameDelta;
     if (hitStop.current > 0) {
       hitStop.current -= delta;
       delta *= 0.08;
@@ -497,11 +531,19 @@ function Battle() {
     if (lockedOn.current && enemyHealth.current > 0) tmp.current.desiredLook.lerp(enemyPosition.current, 0.34).setY(playerPos.y + 0.55);
     cameraPosition.current.lerp(tmp.current.desiredCamera, 1 - Math.exp(-delta * 9));
     cameraLook.current.lerp(tmp.current.desiredLook, 1 - Math.exp(-delta * 12));
-    if (shake.current > 0) {
-      shake.current = Math.max(0, shake.current - delta * 2.2);
-      camera.position.copy(cameraPosition.current).addScaledVector(tmp.current.flat.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5), shake.current * 0.13);
-    } else camera.position.copy(cameraPosition.current);
+    camera.position.copy(cameraPosition.current);
     camera.lookAt(cameraLook.current);
+    if (shake.current) {
+      shake.current.elapsed += frameDelta;
+      const sample = sampleHitShake(shake.current);
+      camera.translateX(sample.x);
+      camera.translateY(sample.y);
+      camera.translateZ(sample.z);
+      camera.rotateX(sample.pitch);
+      camera.rotateY(sample.yaw);
+      camera.rotateZ(sample.roll);
+      if (shake.current.elapsed >= shake.current.profile.duration) shake.current = null;
+    }
 
     hudTimer.current -= delta;
     if (hudTimer.current <= 0) {
