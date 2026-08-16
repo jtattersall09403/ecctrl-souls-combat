@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analogueMoveSpeed, cameraRelativeDirection } from "./input";
+import { SWITCH_GAMEPAD, analogueMoveSpeed, cameraRelativeDirection } from "./input";
 
 describe("movement translation", () => {
   it("maps stick forward away from a camera behind the player", () => {
@@ -16,5 +16,12 @@ describe("movement translation", () => {
     expect(analogueMoveSpeed(0.5, false)).toBeCloseTo(1.8);
     expect(analogueMoveSpeed(1, false)).toBeCloseTo(3.6);
     expect(analogueMoveSpeed(1, true)).toBeCloseTo(5.5);
+  });
+});
+
+describe("GameSir controls", () => {
+  it("maps jump to the Nintendo-layout A face button and L3", () => {
+    expect(SWITCH_GAMEPAD.A_RIGHT_JUMP).toBe(1);
+    expect(SWITCH_GAMEPAD.L_STICK_JUMP).toBe(10);
   });
 });

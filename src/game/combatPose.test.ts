@@ -16,11 +16,4 @@ describe("procedural combat poses", () => {
     expect(impact.weaponForward).toBeGreaterThan(0.2);
     expect(withdrawal.weaponForward).toBeLessThan(0);
   });
-
-  it("gives heavy hits a stronger recoil than light hits", () => {
-    const light = combatPoseAt("HIT", 0.18);
-    const heavy = combatPoseAt("HIT_HEAVY", 0.18);
-    expect(Math.abs(heavy.modelPitch)).toBeGreaterThan(Math.abs(light.modelPitch));
-    expect(Math.abs(heavy.bodyPitch)).toBeGreaterThan(Math.abs(light.bodyPitch));
-  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, phaseAt } from "./weapon";
+import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, isWeaponHitboxActive, phaseAt } from "./weapon";
 
 describe("straight sword moveset", () => {
   it("advances through deterministic attack phases", () => {
@@ -8,6 +8,13 @@ describe("straight sword moveset", () => {
     expect(phaseAt(attack.windup + 0.01, attack)).toBe("active");
     expect(phaseAt(attack.windup + attack.active + 0.01, attack)).toBe("recovery");
     expect(phaseAt(10, attack)).toBe("none");
+  });
+
+  it("moves heavy swing frames into the active window and ends before recovery", () => {
+    const { heavy, light1 } = STRAIGHT_SWORD.attacks;
+    expect(isWeaponHitboxActive(heavy.windup + 0.01, heavy)).toBe(true);
+    expect(isWeaponHitboxActive(heavy.windup + heavy.active + 0.01, heavy)).toBe(false);
+    expect(isWeaponHitboxActive(light1.windup + light1.active + 0.01, light1)).toBe(false);
   });
 
   it("has finite roll and parry windows", () => {

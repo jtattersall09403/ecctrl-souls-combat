@@ -33,7 +33,6 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   EQUIP: { clip: "Interact", speed: 1.25 },
   UNEQUIP: { clip: "Interact", speed: 1.25 },
   HIT: { clip: "Hit_Chest", speed: 1.15, fade: 0.03 },
-  HIT_HEAVY: { clip: "Hit_Head", speed: 0.78, fade: 0.03 },
   GUARD_BREAK: { clip: "Hit_Head", speed: 0.72, fade: 0.03 },
   DEATH: { clip: "Death01", speed: 0.72, fade: 0.08 },
 };
@@ -100,7 +99,14 @@ export function AnimatedFighter({
       leftArm: find("DEF-upper_arm.L", "DEF-upper_armL"),
     };
   }, [model]);
-  const { actions, mixer } = useAnimations(gltf.animations, root);
+  // Ecctrl owns locomotion through Rapier. Remove authored root motion from
+  // library clips so the visual skeleton cannot move ahead of its rigid body.
+  const stationaryAnimations = useMemo(() => gltf.animations.map((clip) => {
+    const stationary = clip.clone();
+    stationary.tracks = stationary.tracks.filter((track) => !track.name.startsWith("root."));
+    return stationary;
+  }), [gltf.animations]);
+  const { actions } = useAnimations(stationaryAnimations, root);
 
   useLayoutEffect(() => {
     model.traverse((object) => {

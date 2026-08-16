@@ -9,7 +9,7 @@ import { selectEnemyIntent } from "../game/enemyAi";
 import { analogueMoveSpeed, cameraRelativeDirection, input } from "../game/input";
 import { useGameStore } from "../game/store";
 import type { AnimationState, AttackDefinition, CombatAction } from "../game/types";
-import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, phaseAt } from "../game/weapon";
+import { COMBAT_TUNING, STRAIGHT_SWORD, isBackstabPosition, isParryActive, isRollInvulnerable, isWeaponHitboxActive, phaseAt } from "../game/weapon";
 import { AnimatedFighter } from "./AnimatedFighter";
 import { Arena } from "./Arena";
 
@@ -111,6 +111,7 @@ function Battle() {
   const playerActionTime = useRef(0);
   const playerAttack = useRef<AttackDefinition | null>(null);
   const playerAttackHit = useRef(false);
+  const playerAttackDirection = useRef(new THREE.Vector3(0, 0, 1));
   const comboQueued = useRef<"light" | "heavy" | null>(null);
   const healedThisAction = useRef(false);
   const playerHealth = useRef<number>(COMBAT_TUNING.maxHealth);
@@ -222,6 +223,10 @@ function Battle() {
     playerAttack.current = action === "light1" || action === "light2" || action === "light3" || action === "heavy" || action === "heavy2" || action === "riposte" || action === "backstab"
       ? STRAIGHT_SWORD.attacks[action]
       : null;
+    if (playerAttack.current) {
+      const axis = player.current?.bodyZAxis;
+      if (axis) playerAttackDirection.current.copy(axis).setY(0).normalize();
+    }
     playerAttackHit.current = false;
     comboQueued.current = null;
     healedThisAction.current = false;
@@ -270,16 +275,8 @@ function Battle() {
       // The paired critical timeline was started before contact. Let it continue
       // through blade withdrawal, knockdown and get-up.
     } else {
-      enemyStaggerDuration.current = heavy ? 0.92 : 0.62;
-      setEnemyMode("stagger", heavy ? "HIT_HEAVY" : "HIT");
-      if (heavy && handle) {
-        const away = tmp.current.movement.set(
-          enemyPosition.current.x - handle.currPos.x,
-          0,
-          enemyPosition.current.z - handle.currPos.z,
-        ).normalize();
-        enemyPosition.current.addScaledVector(away, 0.34);
-      }
+      enemyStaggerDuration.current = 0.62;
+      setEnemyMode("stagger", "HIT");
     }
     return true;
   }, [announce, setEnemyMode, triggerShake]);
@@ -334,15 +331,7 @@ function Battle() {
       startPlayerAction("dead", "DEATH");
       announce("YOU DIED", 8);
     } else {
-      startPlayerAction(heavy ? "hitHeavy" : "hit", heavy ? "HIT_HEAVY" : "HIT");
-      if (heavy) {
-        const away = tmp.current.movement.set(
-          handle.currPos.x - enemyPosition.current.x,
-          0,
-          handle.currPos.z - enemyPosition.current.z,
-        ).normalize();
-        handle.body.setLinvel({ x: away.x * 3.2, y: Math.max(1.1, handle.body.linvel().y), z: away.z * 3.2 }, true);
-      }
+      startPlayerAction("hit", "HIT");
     }
   }, [announce, startPlayerAction, triggerDamageVignette, triggerShake]);
 
@@ -531,14 +520,24 @@ function Battle() {
     const attack = playerAttack.current;
     if (attack) {
       const phase = phaseAt(playerActionTime.current, attack);
-      playerHitboxActive.current = phase === "active" && equipped.current && enemyEnabled && enemyHealth.current > 0;
+      const weaponActive = isWeaponHitboxActive(playerActionTime.current, attack);
+      playerHitboxActive.current = weaponActive && equipped.current && enemyEnabled && enemyHealth.current > 0;
+      if (phase === "windup" && attack.lunge > 0) {
+        body.setLinvel({
+          x: playerAttackDirection.current.x * attack.lunge,
+          y: body.linvel().y,
+          z: playerAttackDirection.current.z * attack.lunge,
+        }, true);
+      } else if (phase === "recovery") {
+        body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
+      }
       const comboInputOpen = phase !== "none" && playerActionTime.current >= attack.windup * 0.65;
       if (comboInputOpen) {
         if (input.pressed("light") && (attack.id === "light1" || attack.id === "light2")) comboQueued.current = "light";
         if (input.pressed("heavy") && attack.id === "heavy") comboQueued.current = "heavy";
       }
       if (
-        phase === "active"
+        weaponActive
         && enemyMode.current === "parry"
         && enemyWeaponOverlaps.current.has("player-weapon")
       ) {
@@ -548,7 +547,7 @@ function Battle() {
         combatAudio.play("parry");
         triggerShake("parry");
         announce("YOUR ATTACK WAS PARRIED", 1.1);
-      } else if (phase === "active" && !playerAttackHit.current && playerWeaponOverlaps.current.has("arena-knight") && enemyEnabled && enemyHealth.current > 0) {
+      } else if (weaponActive && !playerAttackHit.current && playerWeaponOverlaps.current.has("arena-knight") && enemyEnabled && enemyHealth.current > 0) {
         const execution = attack.id === "riposte" ? "riposte" : attack.id === "backstab" ? "backstab" : null;
         playerAttackHit.current = damageEnemy(attack.damage, execution);
       }
@@ -575,7 +574,6 @@ function Battle() {
         equip: 0.62,
         unequip: 0.62,
         hit: 0.62,
-        hitHeavy: 0.92,
         guardBreak: 1.05,
       };
       const duration = actionDurations[playerAction.current];
@@ -729,11 +727,12 @@ function Battle() {
       if (enemyModeTime.current > 0.62) setEnemyMode("watching", "SWORD_IDLE");
     } else if (enemyMode.current === "attack") {
       const phase = phaseAt(enemyModeTime.current, enemyAttack.current);
-      enemyHitboxActive.current = phase === "active" && enemyHealth.current > 0;
+      const weaponActive = isWeaponHitboxActive(enemyModeTime.current, enemyAttack.current);
+      enemyHitboxActive.current = weaponActive && enemyHealth.current > 0;
       if (phase === "windup" && enemyModeTime.current <= delta * 1.5) combatAudio.play("swing");
       if (phase === "windup" && distance > 1.05) enemyPosition.current.addScaledVector(direction, delta * enemyAttack.current.lunge);
       if (
-        phase === "active"
+        weaponActive
         && playerAction.current === "parry"
         && isParryActive(playerActionTime.current)
         && playerWeaponOverlaps.current.has("enemy-weapon")
@@ -742,7 +741,7 @@ function Battle() {
         combatAudio.play("parry");
         announce("WEAPONS CLASHED — LIGHT ATTACK TO RIPOSTE", 1.5);
         triggerShake("parry", { x: playerPos.x - enemyPosition.current.x, z: playerPos.z - enemyPosition.current.z });
-      } else if (phase === "active" && enemyWeaponOverlaps.current.has("player")) {
+      } else if (weaponActive && enemyWeaponOverlaps.current.has("player")) {
         attemptEnemyHit();
       }
       if (phase === "none") {

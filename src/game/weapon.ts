@@ -50,9 +50,12 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "HEAVY",
       damage: 45,
       stamina: 45,
-      windup: 0.52,
-      active: 0.3,
-      recovery: 0.53,
+      // The clip starts its visible release before the old 0.52s boundary.
+      // Keep the full visible swing inside the active phase and reserve the
+      // final settle for recovery.
+      windup: 0.38,
+      active: 0.52,
+      recovery: 0.45,
       range: 2.3,
       arc: 1.05,
       lunge: 1.85,
@@ -63,9 +66,9 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "HEAVY_2",
       damage: 58,
       stamina: 48,
-      windup: 0.58,
-      active: 0.34,
-      recovery: 0.59,
+      windup: 0.43,
+      active: 0.62,
+      recovery: 0.46,
       range: 2.4,
       arc: 0.92,
       lunge: 1.7,
@@ -126,6 +129,10 @@ export function phaseAt(elapsed: number, attack: WeaponDefinition["attacks"]["li
   if (elapsed < attack.windup + attack.active) return "active" as const;
   if (elapsed < attack.windup + attack.active + attack.recovery) return "recovery" as const;
   return "none" as const;
+}
+
+export function isWeaponHitboxActive(elapsed: number, attack: WeaponDefinition["attacks"]["light1"]) {
+  return phaseAt(elapsed, attack) === "active";
 }
 
 export function isRollInvulnerable(elapsed: number) {
