@@ -47,8 +47,6 @@ export const COMBAT_POSE_DURATIONS: Partial<Record<AnimationState, number>> = {
   RIPOSTE: 1.06,
   BACKSTAB: 1.36,
   BACKSTABBED: 2.35,
-  HIT: 0.64,
-  HIT_HEAVY: 0.94,
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -133,15 +131,6 @@ export function combatPoseAt(animation: AnimationState, elapsed: number): Combat
     pose.modelPitch = -0.2 * recoil + 1.18 * fall * (1 - rise);
     pose.modelY = -0.5 * fall * (1 - rise);
     pose.bodyPitch = -0.24 * recoil;
-  } else if (animation === "HIT" || animation === "HIT_HEAVY") {
-    const strength = animation === "HIT_HEAVY" ? 1 : 0.62;
-    const recoil = bell(p, 0.3);
-    pose.modelPitch = -0.42 * strength * recoil;
-    pose.bodyPitch = -0.5 * strength * recoil;
-    pose.bodyYaw = 0.28 * strength * recoil;
-    pose.rightArmX = 0.38 * strength * recoil;
-    pose.leftArmX = 0.34 * strength * recoil;
-    pose.hipsY = -0.18 * strength * recoil;
   }
 
   return pose;

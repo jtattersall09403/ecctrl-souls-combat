@@ -15,15 +15,15 @@ export type InputAction =
 // Nintendo-layout face caps on the GameSir X2s Type-C.
 export const SWITCH_GAMEPAD = {
   B_BOTTOM_DODGE: 0,
-  A_RIGHT_INTERACT: 1,
+  A_RIGHT_JUMP: 1,
   Y_LEFT_TWO_HAND: 2,
   X_TOP_ITEM: 3,
   L_GUARD: 4,
   R_LIGHT: 5,
   ZL_PARRY: 6,
   ZR_HEAVY: 7,
-  L_STICK_JUMP: 9,
-  R_STICK_LOCK: 10,
+  L_STICK_JUMP: 10,
+  R_STICK_LOCK: 11,
   DPAD_RIGHT_EQUIP: 15,
 } as const;
 
@@ -131,7 +131,7 @@ export class InputController {
     this.current.set("lockOn", active("lockOn") || this.keys.has("KeyQ") || button(SWITCH_GAMEPAD.R_STICK_LOCK));
     this.current.set("heal", active("heal") || this.keys.has("KeyH") || button(SWITCH_GAMEPAD.X_TOP_ITEM));
     this.current.set("equip", active("equip") || this.keys.has("KeyE") || button(SWITCH_GAMEPAD.DPAD_RIGHT_EQUIP));
-    this.current.set("jump", active("jump") || this.keys.has("KeyJ") || button(SWITCH_GAMEPAD.L_STICK_JUMP));
+    this.current.set("jump", active("jump") || this.keys.has("KeyJ") || button(SWITCH_GAMEPAD.A_RIGHT_JUMP) || button(SWITCH_GAMEPAD.L_STICK_JUMP));
   }
 
   held(action: InputAction) {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { input, type InputAction } from "../game/input";
 import { useGameStore } from "../game/store";
+import { FullscreenButton } from "./FullscreenButton";
 
 function Bar({ value, max, className, label }: { value: number; max: number; className: string; label: string }) {
   return (
@@ -167,6 +168,7 @@ export function Hud() {
           />
           Show hitboxes
         </label>
+        <FullscreenButton />
         <button onClick={state.reset}>RESET &amp; RESTART</button>
       </details>
       {!touch && state.started && <CameraZone />}
@@ -188,7 +190,7 @@ export function Hud() {
               <dt>Light / heavy</dt><dd>R / ZR</dd>
               <dt>Guard / parry</dt><dd>L / ZL</dd>
               <dt>Dodge / sprint</dt><dd>B tap / hold</dd>
-              <dt>Jump</dt><dd>L3</dd>
+              <dt>Jump</dt><dd>A / L3</dd>
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
             </dl>
           </div>
@@ -196,7 +198,7 @@ export function Hud() {
         </aside>
       )}
 
-      {touch && state.started && !dead && (
+      {touch && !state.gamepad && state.started && !dead && (
         <div className="touch-controls">
           <CameraZone />
           <TouchJoystick />
