@@ -4,24 +4,45 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } fr
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { combatPoseAt } from "../game/combatPose";
+import { dampLockOnOrientationWarp } from "../game/lockOn";
 import type { AnimationState } from "../game/types";
-import { executionWeaponPath, parryWeaponPath } from "../game/weaponMotion";
+import { LIGHT_COMBO_CLIP, LIGHT_COMBO_PLAYBACK, sampleLightClipTime } from "../game/weapon";
+import { executionWeaponPath, guardWeaponPath, parryWeaponPath } from "../game/weaponMotion";
 
-type ClipSettings = { clip: string; loop?: boolean; speed?: number; fade?: number };
+type ClipSettings = { clip: string; loop?: boolean; speed?: number; fade?: number; sourceOffset?: number };
 const UP = new THREE.Vector3(0, 1, 0);
+const LOCOMOTION_STATES = new Set<AnimationState>([
+  "IDLE",
+  "WALK",
+  "WALK_BACK",
+  "STRAFE_LEFT",
+  "STRAFE_RIGHT",
+  "RUN",
+  "SPRINT",
+  "SWORD_IDLE",
+  "JUMP_START",
+  "JUMP_IDLE",
+  "JUMP_LAND",
+]);
+const isLightComboAnimation = (animation: AnimationState): animation is keyof typeof LIGHT_COMBO_PLAYBACK => (
+  animation === "LIGHT_1" || animation === "LIGHT_2" || animation === "LIGHT_3"
+);
 
 const CLIPS: Record<AnimationState, ClipSettings> = {
   IDLE: { clip: "Idle_Loop", loop: true },
   WALK: { clip: "Walk_Loop", loop: true, speed: 1.05 },
+  WALK_BACK: { clip: "Walk_Loop", loop: true, speed: -1.05 },
+  STRAFE_LEFT: { clip: "Walk_Loop", loop: true, speed: 1.05 },
+  STRAFE_RIGHT: { clip: "Walk_Loop", loop: true, speed: 1.05 },
   RUN: { clip: "Jog_Fwd_Loop", loop: true, speed: 1.1 },
   SPRINT: { clip: "Sprint_Loop", loop: true, speed: 1.05 },
   JUMP_START: { clip: "Jump_Start", speed: 1.4 },
   JUMP_IDLE: { clip: "Jump_Loop", loop: true },
   JUMP_LAND: { clip: "Jump_Land", speed: 1.35 },
   SWORD_IDLE: { clip: "Sword_Idle", loop: true },
-  LIGHT_1: { clip: "Sword_Attack", speed: 2.25, fade: 0.06 },
-  LIGHT_2: { clip: "Sword_Attack_RM", speed: 2.13, fade: 0.05 },
-  LIGHT_3: { clip: "Sword_Attack", speed: 1.78, fade: 0.05 },
+  LIGHT_1: { clip: LIGHT_COMBO_CLIP, sourceOffset: LIGHT_COMBO_PLAYBACK.LIGHT_1.sourceOffset, fade: 0.05 },
+  LIGHT_2: { clip: LIGHT_COMBO_CLIP, sourceOffset: LIGHT_COMBO_PLAYBACK.LIGHT_2.sourceOffset, fade: 0.025 },
+  LIGHT_3: { clip: LIGHT_COMBO_CLIP, sourceOffset: LIGHT_COMBO_PLAYBACK.LIGHT_3.sourceOffset, fade: 0.035 },
   HEAVY: { clip: "Sword_Attack_RM", speed: 1.14, fade: 0.08 },
   HEAVY_2: { clip: "Sword_Attack", speed: 1.02, fade: 0.07 },
   ROLL: { clip: "Roll", speed: 1.05, fade: 0.04 },
@@ -71,6 +92,9 @@ export function AnimatedFighter({
   weaponRef,
   animationStartAt = 0,
   animationEpoch = 0,
+  animationTimeRef,
+  animationStateRef,
+  locomotionWarpRef,
   modelOffsetY = -0.9,
 }: {
   animation: AnimationState;
@@ -79,6 +103,9 @@ export function AnimatedFighter({
   weaponRef?: MutableRefObject<THREE.Object3D | null>;
   animationStartAt?: number;
   animationEpoch?: number;
+  animationTimeRef?: MutableRefObject<number>;
+  animationStateRef?: MutableRefObject<AnimationState>;
+  locomotionWarpRef?: MutableRefObject<number>;
   modelOffsetY?: number;
 }) {
   const gltf = useGLTF(`${import.meta.env.BASE_URL}AnimationLibrary.glb`);
@@ -86,7 +113,10 @@ export function AnimatedFighter({
   const root = useRef<THREE.Group>(null);
   const visual = useRef<THREE.Group>(null);
   const previous = useRef<THREE.AnimationAction | null>(null);
+  const previousAnimation = useRef<AnimationState | null>(null);
+  const activeAction = useRef<THREE.AnimationAction | null>(null);
   const actionElapsed = useRef(0);
+  const locomotionWarp = useRef(0);
   const sword = useMemo(makeSword, []);
   const weaponMount = useMemo(() => new THREE.Group(), []);
   const poseQuaternion = useMemo(() => new THREE.Quaternion(), []);
@@ -98,6 +128,7 @@ export function AnimatedFighter({
   const weaponTranslation = useMemo(() => new THREE.Vector3(), []);
   const worldGrip = useMemo(() => new THREE.Vector3(), []);
   const worldTip = useMemo(() => new THREE.Vector3(), []);
+  const worldOffHand = useMemo(() => new THREE.Vector3(), []);
   const desiredMountPosition = useMemo(() => new THREE.Vector3(), []);
   const bladeDirection = useMemo(() => new THREE.Vector3(), []);
   const shoulderPosition = useMemo(() => new THREE.Vector3(), []);
@@ -105,6 +136,8 @@ export function AnimatedFighter({
   const handPosition = useMemo(() => new THREE.Vector3(), []);
   const desiredElbow = useMemo(() => new THREE.Vector3(), []);
   const targetDirection = useMemo(() => new THREE.Vector3(), []);
+  const effectiveTarget = useMemo(() => new THREE.Vector3(), []);
+  const targetAdjustment = useMemo(() => new THREE.Vector3(), []);
   const currentDirection = useMemo(() => new THREE.Vector3(), []);
   const poleDirection = useMemo(() => new THREE.Vector3(), []);
   const upperWorldQuaternion = useMemo(() => new THREE.Quaternion(), []);
@@ -118,11 +151,15 @@ export function AnimatedFighter({
     const find = (fileName: string, runtimeName: string) => model.getObjectByName(fileName) ?? model.getObjectByName(runtimeName);
     return {
       spine: find("DEF-spine.003", "DEF-spine003"),
+      spineLower: find("DEF-spine.001", "DEF-spine001"),
+      spineMid: find("DEF-spine.002", "DEF-spine002"),
       hips: model.getObjectByName("DEF-hips"),
       rightArm: find("DEF-upper_arm.R", "DEF-upper_armR"),
       rightForearm: find("DEF-forearm.R", "DEF-forearmR"),
       rightHand: find("DEF-hand.R", "DEF-handR"),
       leftArm: find("DEF-upper_arm.L", "DEF-upper_armL"),
+      leftForearm: find("DEF-forearm.L", "DEF-forearmL"),
+      leftHand: find("DEF-hand.L", "DEF-handL"),
     };
   }, [model]);
   // Ecctrl owns locomotion through Rapier. Remove authored root motion from
@@ -132,7 +169,7 @@ export function AnimatedFighter({
     stationary.tracks = stationary.tracks.filter((track) => !track.name.startsWith("root."));
     return stationary;
   }), [gltf.animations]);
-  const { actions } = useAnimations(stationaryAnimations, root);
+  const { actions, mixer } = useAnimations(stationaryAnimations, root);
 
   useLayoutEffect(() => {
     model.traverse((object) => {
@@ -176,31 +213,88 @@ export function AnimatedFighter({
     if (!next) return;
     const fade = settings.fade ?? 0.12;
     const sameAction = next === previous.current;
-    next.reset();
+    const preserveGaitPhase = sameAction
+      && previousAnimation.current !== null
+      && LOCOMOTION_STATES.has(previousAnimation.current)
+      && LOCOMOTION_STATES.has(animation);
+    if (!preserveGaitPhase) next.reset();
     next.enabled = true;
     const speed = settings.speed ?? 1;
     next.timeScale = speed;
     const clipDuration = next.getClip().duration;
-    next.time = speed < 0
-      ? Math.max(0, clipDuration - animationStartAt * Math.abs(speed))
-      : Math.min(clipDuration, animationStartAt * speed);
+    const sourceOffset = settings.sourceOffset ?? 0;
+    if (!preserveGaitPhase) {
+      next.time = isLightComboAnimation(animation)
+        ? sampleLightClipTime(animation, animationStartAt)
+        : speed < 0
+        ? Math.max(0, clipDuration - animationStartAt * Math.abs(speed))
+        : Math.min(clipDuration, sourceOffset + animationStartAt * speed);
+    }
+    next.paused = Boolean(animationTimeRef && !LOCOMOTION_STATES.has(animation));
     next.clampWhenFinished = !settings.loop;
     next.setLoop(settings.loop ? THREE.LoopRepeat : THREE.LoopOnce, settings.loop ? Infinity : 1);
     if (previous.current && !sameAction) next.crossFadeFrom(previous.current, fade, true);
     next.play();
     previous.current = next;
-  }, [actions, animation, animationEpoch, animationStartAt]);
+    previousAnimation.current = animation;
+    activeAction.current = next;
+  }, [actions, animation, animationEpoch, animationStartAt, animationTimeRef]);
 
   useFrame((_, delta) => {
-    actionElapsed.current += Math.min(delta, 1 / 30);
+    const externallyTimed = Boolean(animationTimeRef && !LOCOMOTION_STATES.has(animation));
+    const transitionPending = Boolean(animationStateRef && animationStateRef.current !== animation);
+    const pendingComboSuccessor = transitionPending && (
+      (animation === "LIGHT_1" && animationStateRef?.current === "LIGHT_2")
+      || (animation === "LIGHT_2" && animationStateRef?.current === "LIGHT_3")
+    );
+    if (!transitionPending) {
+      actionElapsed.current = externallyTimed
+        ? animationTimeRef!.current
+        : actionElapsed.current + Math.min(delta, 1 / 30);
+    } else if (pendingComboSuccessor && isLightComboAnimation(animation)) {
+      const playback = LIGHT_COMBO_PLAYBACK[animation];
+      actionElapsed.current = playback.windup + playback.active;
+    }
+    if (externallyTimed && (!transitionPending || pendingComboSuccessor) && activeAction.current) {
+      const settings = CLIPS[animation];
+      const speed = settings.speed ?? 1;
+      const clipDuration = activeAction.current.getClip().duration;
+      activeAction.current.time = isLightComboAnimation(animation)
+        ? sampleLightClipTime(animation, actionElapsed.current)
+        : speed < 0
+        ? Math.max(0, clipDuration - actionElapsed.current * Math.abs(speed))
+        : Math.min(clipDuration, (settings.sourceOffset ?? 0) + actionElapsed.current * speed);
+      mixer.update(0);
+    }
     const pose = combatPoseAt(animation, actionElapsed.current);
+    const directionalLocomotion = LOCOMOTION_STATES.has(animation) && animation !== "JUMP_IDLE";
+    locomotionWarp.current = dampLockOnOrientationWarp(
+      locomotionWarp.current,
+      directionalLocomotion ? locomotionWarpRef?.current ?? 0 : 0,
+      Math.min(delta, 1 / 30),
+    );
+    if (directionalLocomotion) {
+      pose.hipsY = locomotionWarp.current;
+      pose.spineLowerYaw = -locomotionWarp.current / 3;
+      pose.spineMidYaw = -locomotionWarp.current / 3;
+      pose.bodyYaw = -locomotionWarp.current / 3;
+      pose.bodyRoll = -locomotionWarp.current / (Math.PI / 2) * 0.055;
+    } else if (Math.abs(locomotionWarp.current) > 0.0001) {
+      pose.hipsY += locomotionWarp.current;
+      pose.spineLowerYaw -= locomotionWarp.current / 3;
+      pose.spineMidYaw -= locomotionWarp.current / 3;
+      pose.bodyYaw -= locomotionWarp.current / 3;
+      pose.bodyRoll -= locomotionWarp.current / (Math.PI / 2) * 0.055;
+    }
     const rotate = (object: THREE.Object3D | undefined, x: number, y: number, z: number) => {
       if (!object || (x === 0 && y === 0 && z === 0)) return;
       poseEuler.set(x, y, z);
       poseQuaternion.setFromEuler(poseEuler);
       object.quaternion.multiply(poseQuaternion);
     };
-    rotate(bones.spine, pose.bodyPitch, pose.bodyYaw, 0);
+    rotate(bones.spineLower, 0, pose.spineLowerYaw, 0);
+    rotate(bones.spineMid, 0, pose.spineMidYaw, 0);
+    rotate(bones.spine, pose.bodyPitch, pose.bodyYaw, pose.bodyRoll);
     rotate(bones.hips, 0, pose.hipsY, 0);
     rotate(bones.rightArm, pose.rightArmX, pose.rightArmY, pose.rightArmZ);
     rotate(bones.rightForearm, pose.rightForearmX, 0, 0);
@@ -210,12 +304,16 @@ export function AnimatedFighter({
       visual.current.position.y = pose.modelY;
       visual.current.rotation.set(pose.modelPitch, 0, 0);
     }
-    if ((animation === "BACKSTAB" || animation === "RIPOSTE" || animation === "PARRY") && visual.current && bones.rightArm && bones.rightForearm && bones.rightHand) {
+    if ((animation === "BACKSTAB" || animation === "RIPOSTE" || animation === "PARRY" || animation === "GUARD") && visual.current && bones.rightArm && bones.rightForearm && bones.rightHand) {
       const duration = animation === "PARRY" ? 0.66 : animation === "BACKSTAB" ? 1.36 : 1.06;
       const progress = THREE.MathUtils.clamp(actionElapsed.current / duration, 0, 1);
-      const path = animation === "PARRY" ? parryWeaponPath(progress) : executionWeaponPath(progress);
-      const fadeIn = THREE.MathUtils.smoothstep(progress, 0, animation === "PARRY" ? 0.08 : 0.12);
-      const fadeOut = 1 - THREE.MathUtils.smoothstep(progress, animation === "PARRY" ? 0.72 : 0.84, 1);
+      const guarding = animation === "GUARD";
+      const guardPath = guarding ? guardWeaponPath() : null;
+      const path = guardPath ?? (animation === "PARRY" ? parryWeaponPath(progress) : executionWeaponPath(progress));
+      const fadeIn = guarding
+        ? THREE.MathUtils.smoothstep(actionElapsed.current, 0, 0.12)
+        : THREE.MathUtils.smoothstep(progress, 0, animation === "PARRY" ? 0.08 : 0.12);
+      const fadeOut = guarding ? 1 : 1 - THREE.MathUtils.smoothstep(progress, animation === "PARRY" ? 0.72 : 0.84, 1);
       const constraintWeight = fadeIn * fadeOut;
 
       root.current?.updateWorldMatrix(true, true);
@@ -223,48 +321,78 @@ export function AnimatedFighter({
       worldTip.set(path.tip.x, path.tip.y, path.tip.z);
       visual.current.localToWorld(worldGrip);
       visual.current.localToWorld(worldTip);
+      if (guardPath) {
+        worldOffHand.set(guardPath.offHand.x, guardPath.offHand.y, guardPath.offHand.z);
+        visual.current.localToWorld(worldOffHand);
+      }
 
-      // Analytic two-bone IK brings the hand to the authored world-space grip.
-      // The pole stays on the fighter's right side so the elbow bends naturally.
-      bones.rightArm.getWorldPosition(shoulderPosition);
-      bones.rightForearm.getWorldPosition(elbowPosition);
-      bones.rightHand.getWorldPosition(handPosition);
-      const upperLength = shoulderPosition.distanceTo(elbowPosition);
-      const forearmLength = elbowPosition.distanceTo(handPosition);
-      targetDirection.copy(worldGrip).sub(shoulderPosition);
-      const targetDistance = THREE.MathUtils.clamp(targetDirection.length(), Math.abs(upperLength - forearmLength) + 0.001, upperLength + forearmLength - 0.001);
-      targetDirection.normalize();
-      visual.current.getWorldQuaternion(visualWorldQuaternion);
-      poleDirection.set(-1, 0, -0.15).applyQuaternion(visualWorldQuaternion);
-      poleDirection.addScaledVector(targetDirection, -poleDirection.dot(targetDirection));
-      if (poleDirection.lengthSq() < 0.0001) poleDirection.set(0, 1, 0);
-      poleDirection.normalize();
-      const along = (upperLength * upperLength - forearmLength * forearmLength + targetDistance * targetDistance) / (2 * targetDistance);
-      const perpendicular = Math.sqrt(Math.max(0, upperLength * upperLength - along * along));
-      desiredElbow.copy(shoulderPosition)
-        .addScaledVector(targetDirection, along)
-        .addScaledVector(poleDirection, perpendicular);
+      const solveArm = (
+        upperArm: THREE.Object3D,
+        forearm: THREE.Object3D,
+        hand: THREE.Object3D,
+        target: THREE.Vector3,
+        poleSide: -1 | 1,
+        reachRatio: number,
+      ) => {
+        root.current?.updateWorldMatrix(true, true);
+        upperArm.getWorldPosition(shoulderPosition);
+        forearm.getWorldPosition(elbowPosition);
+        hand.getWorldPosition(handPosition);
+        const upperLength = shoulderPosition.distanceTo(elbowPosition);
+        const forearmLength = elbowPosition.distanceTo(handPosition);
+        targetDirection.copy(target).sub(shoulderPosition);
+        const requestedDistance = targetDirection.length();
+        const maximumReach = (upperLength + forearmLength) * reachRatio;
+        const targetDistance = THREE.MathUtils.clamp(
+          requestedDistance,
+          Math.abs(upperLength - forearmLength) + 0.001,
+          maximumReach,
+        );
+        targetDirection.normalize();
+        if (Math.abs(targetDistance - requestedDistance) > 0.0001) {
+          effectiveTarget.copy(shoulderPosition).addScaledVector(targetDirection, targetDistance);
+          targetAdjustment.copy(effectiveTarget).sub(target);
+          target.copy(effectiveTarget);
+          if (target === worldGrip) worldTip.add(targetAdjustment);
+        }
+        visual.current!.getWorldQuaternion(visualWorldQuaternion);
+        poleDirection.set(poleSide, 0.08, -0.12).applyQuaternion(visualWorldQuaternion);
+        poleDirection.addScaledVector(targetDirection, -poleDirection.dot(targetDirection));
+        if (poleDirection.lengthSq() < 0.0001) poleDirection.set(0, 1, 0);
+        poleDirection.normalize();
+        const along = (upperLength * upperLength - forearmLength * forearmLength + targetDistance * targetDistance) / (2 * targetDistance);
+        const perpendicular = Math.sqrt(Math.max(0, upperLength * upperLength - along * along));
+        desiredElbow.copy(shoulderPosition)
+          .addScaledVector(targetDirection, along)
+          .addScaledVector(poleDirection, perpendicular);
 
-      currentDirection.copy(elbowPosition).sub(shoulderPosition).normalize();
-      targetDirection.copy(desiredElbow).sub(shoulderPosition).normalize();
-      bones.rightArm.getWorldQuaternion(upperWorldQuaternion);
-      rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
-      desiredBoneQuaternion.copy(rotationDelta).multiply(upperWorldQuaternion);
-      bones.rightArm.parent?.getWorldQuaternion(parentWorldQuaternion);
-      desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
-      bones.rightArm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
-      bones.rightArm.updateWorldMatrix(true, true);
+        currentDirection.copy(elbowPosition).sub(shoulderPosition).normalize();
+        targetDirection.copy(desiredElbow).sub(shoulderPosition).normalize();
+        upperArm.getWorldQuaternion(upperWorldQuaternion);
+        rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
+        desiredBoneQuaternion.copy(rotationDelta).multiply(upperWorldQuaternion);
+        upperArm.parent?.getWorldQuaternion(parentWorldQuaternion);
+        desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
+        upperArm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
+        upperArm.updateWorldMatrix(true, true);
 
-      bones.rightForearm.getWorldPosition(elbowPosition);
-      bones.rightHand.getWorldPosition(handPosition);
-      currentDirection.copy(handPosition).sub(elbowPosition).normalize();
-      targetDirection.copy(worldGrip).sub(elbowPosition).normalize();
-      bones.rightForearm.getWorldQuaternion(forearmWorldQuaternion);
-      rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
-      desiredBoneQuaternion.copy(rotationDelta).multiply(forearmWorldQuaternion);
-      bones.rightForearm.parent?.getWorldQuaternion(parentWorldQuaternion);
-      desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
-      bones.rightForearm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
+        forearm.getWorldPosition(elbowPosition);
+        hand.getWorldPosition(handPosition);
+        currentDirection.copy(handPosition).sub(elbowPosition).normalize();
+        targetDirection.copy(target).sub(elbowPosition).normalize();
+        forearm.getWorldQuaternion(forearmWorldQuaternion);
+        rotationDelta.setFromUnitVectors(currentDirection, targetDirection);
+        desiredBoneQuaternion.copy(rotationDelta).multiply(forearmWorldQuaternion);
+        forearm.parent?.getWorldQuaternion(parentWorldQuaternion);
+        desiredBoneQuaternion.premultiply(parentWorldQuaternion.invert());
+        forearm.quaternion.slerp(desiredBoneQuaternion, constraintWeight);
+      };
+
+      const anatomicalReachLimit = animation === "PARRY" || guarding ? 0.92 : 0.999;
+      solveArm(bones.rightArm, bones.rightForearm, bones.rightHand, worldGrip, -1, anatomicalReachLimit);
+      if (guarding && bones.leftArm && bones.leftForearm && bones.leftHand) {
+        solveArm(bones.leftArm, bones.leftForearm, bones.leftHand, worldOffHand, 1, 0.92);
+      }
       root.current?.updateWorldMatrix(true, true);
 
       // The sword's local +Y axis is its blade. Resolve the desired world pose

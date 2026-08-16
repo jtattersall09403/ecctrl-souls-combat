@@ -24,6 +24,9 @@ export type CombatAction =
 export type AnimationState =
   | "IDLE"
   | "WALK"
+  | "WALK_BACK"
+  | "STRAFE_LEFT"
+  | "STRAFE_RIGHT"
   | "RUN"
   | "SPRINT"
   | "JUMP_START"

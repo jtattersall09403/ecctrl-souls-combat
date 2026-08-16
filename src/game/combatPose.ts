@@ -1,8 +1,12 @@
 import type { AnimationState } from "./types";
+import { STRAIGHT_SWORD } from "./weapon";
 
 export type CombatPose = {
   bodyPitch: number;
   bodyYaw: number;
+  bodyRoll: number;
+  spineLowerYaw: number;
+  spineMidYaw: number;
   rightArmX: number;
   rightArmY: number;
   rightArmZ: number;
@@ -21,6 +25,9 @@ export type CombatPose = {
 const ZERO: CombatPose = {
   bodyPitch: 0,
   bodyYaw: 0,
+  bodyRoll: 0,
+  spineLowerYaw: 0,
+  spineMidYaw: 0,
   rightArmX: 0,
   rightArmY: 0,
   rightArmZ: 0,
@@ -37,9 +44,9 @@ const ZERO: CombatPose = {
 };
 
 export const COMBAT_POSE_DURATIONS: Partial<Record<AnimationState, number>> = {
-  LIGHT_1: 0.68,
-  LIGHT_2: 0.72,
-  LIGHT_3: 0.86,
+  LIGHT_1: STRAIGHT_SWORD.attacks.light1.windup + STRAIGHT_SWORD.attacks.light1.active + STRAIGHT_SWORD.attacks.light1.recovery,
+  LIGHT_2: STRAIGHT_SWORD.attacks.light2.windup + STRAIGHT_SWORD.attacks.light2.active + STRAIGHT_SWORD.attacks.light2.recovery,
+  LIGHT_3: STRAIGHT_SWORD.attacks.light3.windup + STRAIGHT_SWORD.attacks.light3.active + STRAIGHT_SWORD.attacks.light3.recovery,
   HEAVY: 1.35,
   HEAVY_2: 1.51,
   PARRY: 0.66,
@@ -58,43 +65,77 @@ const segment = (progress: number, from: number, to: number) => smooth((progress
 const bell = (progress: number, peak = 0.5) => progress < peak
   ? smooth(progress / peak)
   : 1 - smooth((progress - peak) / (1 - peak));
+const keyed = (elapsed: number, times: number[], values: number[]) => {
+  if (elapsed <= times[0]) return values[0];
+  for (let index = 0; index < times.length - 1; index += 1) {
+    if (elapsed <= times[index + 1]) {
+      const amount = smooth((elapsed - times[index]) / (times[index + 1] - times[index]));
+      return values[index] + (values[index + 1] - values[index]) * amount;
+    }
+  }
+  return values[values.length - 1];
+};
 
 export function combatPoseAt(animation: AnimationState, elapsed: number): CombatPose {
+  if (animation === "STRAFE_LEFT" || animation === "STRAFE_RIGHT") {
+    // Ecctrl's rightward basis is forward × up, which is local -X for this rig.
+    const direction = animation === "STRAFE_LEFT" ? 1 : -1;
+    const warp = direction * Math.PI / 2;
+    return {
+      ...ZERO,
+      hipsY: warp,
+      spineLowerYaw: -warp / 3,
+      spineMidYaw: -warp / 3,
+      bodyYaw: -warp / 3,
+      bodyRoll: -direction * 0.055,
+    };
+  }
   const duration = COMBAT_POSE_DURATIONS[animation];
   if (!duration) return { ...ZERO };
   const p = clamp01(elapsed / duration);
   const pose = { ...ZERO };
 
   if (animation === "LIGHT_1") {
-    const swing = bell(p, 0.43);
-    pose.bodyYaw = -0.2 * swing;
-    pose.rightArmZ = -0.2 * swing;
-    pose.weaponRoll = -0.2 * swing;
+    const attack = STRAIGHT_SWORD.attacks.light1;
+    const activeEnd = attack.windup + attack.active;
+    const times = [0, attack.windup, activeEnd, duration];
+    const turn = keyed(elapsed, times, [0, 0.22, -0.34, 0]);
+    pose.hipsY = turn * 0.28;
+    pose.spineLowerYaw = turn * 0.22;
+    pose.spineMidYaw = turn * 0.22;
+    pose.bodyYaw = turn * 0.28;
+    pose.bodyPitch = keyed(elapsed, times, [0, -0.08, 0.1, 0]);
+    pose.rightArmZ = keyed(elapsed, times, [0, 0.08, -0.16, 0]);
+    pose.weaponRoll = keyed(elapsed, times, [0, 0.08, -0.16, 0]);
   } else if (animation === "LIGHT_2") {
-    // The active entry matches LIGHT_1 at the end of its active window, then
-    // immediately carries that cut into the opposing backswing.
-    const swing = segment(p, 0.22, 0.64);
-    const recover = segment(p, 0.64, 1);
-    const hold = 1 - recover;
-    pose.bodyYaw = (-0.12 + 0.64 * swing) * hold;
-    pose.rightArmY = -0.65 * swing * hold;
-    pose.rightArmZ = (-0.12 + 0.54 * swing) * hold;
-    pose.rightForearmX = -0.28 * swing * hold;
-    pose.weaponRoll = -0.12 * (1 - swing) * hold;
-    pose.weaponYaw = -0.48 * swing * hold;
+    const attack = STRAIGHT_SWORD.attacks.light2;
+    const activeEnd = attack.windup + attack.active;
+    const times = [0, attack.windup, activeEnd, duration];
+    // Entry equals LIGHT_1's active endpoint. The authored clip then performs
+    // its complete reverse cut before any recovery is allowed.
+    const turn = keyed(elapsed, times, [-0.34, -0.4, 0.43, 0]);
+    pose.hipsY = turn * 0.28;
+    pose.spineLowerYaw = turn * 0.22;
+    pose.spineMidYaw = turn * 0.22;
+    pose.bodyYaw = turn * 0.28;
+    pose.bodyPitch = keyed(elapsed, times, [0.1, 0.04, 0.08, 0]);
+    pose.rightArmZ = keyed(elapsed, times, [-0.16, -0.18, 0.18, 0]);
+    pose.weaponRoll = keyed(elapsed, times, [-0.16, -0.18, 0.16, 0]);
   } else if (animation === "LIGHT_3") {
-    // Start at LIGHT_2's released pose and turn it into the larger finisher.
-    const finish = segment(p, 0.23, 0.58);
-    const recover = segment(p, 0.58, 1);
-    const hold = 1 - recover;
-    pose.bodyPitch = 0.48 * finish * hold;
-    pose.bodyYaw = (0.52 - 0.86 * finish) * hold;
-    pose.rightArmX = 0.58 * finish * hold;
-    pose.rightArmY = -0.65 * (1 - finish) * hold;
-    pose.rightArmZ = (0.42 - 0.62 * finish) * hold;
-    pose.rightForearmX = -0.28 * (1 - finish) * hold;
-    pose.leftArmX = -0.34 * finish * hold;
-    pose.weaponYaw = -0.48 * (1 - finish) * hold;
+    const attack = STRAIGHT_SWORD.attacks.light3;
+    const activeEnd = attack.windup + attack.active;
+    const times = [0, attack.windup, activeEnd, duration];
+    // Entry equals LIGHT_2's endpoint; the slower clip plus a larger torso
+    // turn and forward fold make the third cut the committed finisher.
+    const turn = keyed(elapsed, times, [0.43, 0.55, -0.38, 0]);
+    pose.hipsY = turn * 0.28;
+    pose.spineLowerYaw = turn * 0.22;
+    pose.spineMidYaw = turn * 0.22;
+    pose.bodyYaw = turn * 0.28;
+    pose.bodyPitch = keyed(elapsed, times, [0.08, -0.18, 0.46, 0]);
+    pose.rightArmZ = keyed(elapsed, times, [0.18, 0.22, -0.24, 0]);
+    pose.leftArmX = keyed(elapsed, times, [0, -0.12, -0.3, 0]);
+    pose.weaponRoll = keyed(elapsed, times, [0.16, 0.2, -0.22, 0]);
   } else if (animation === "HEAVY" || animation === "HEAVY_2") {
     const charge = segment(p, 0, 0.4) * (1 - segment(p, 0.48, 0.72));
     const release = segment(p, 0.42, 0.7) * (1 - segment(p, 0.78, 1));
@@ -105,15 +146,12 @@ export function combatPoseAt(animation: AnimationState, elapsed: number): Combat
     pose.rightArmY = side * 0.45 * charge;
     pose.weaponRoll = side * 0.35 * charge;
   } else if (animation === "PARRY") {
-    // Reverse swipe: gather across the torso, then snap the blade outward.
+    // The IK path owns the weapon arm. A small trunk response adds force while
+    // keeping the shoulder socket and elbow clear of the torso.
     const gather = segment(p, 0, 0.25) * (1 - segment(p, 0.34, 0.5));
     const deflect = segment(p, 0.2, 0.47) * (1 - segment(p, 0.6, 1));
-    pose.bodyYaw = 0.3 * gather - 0.42 * deflect;
-    pose.rightArmY = -0.9 * gather + 0.95 * deflect;
-    pose.rightArmZ = 0.48 * gather - 0.62 * deflect;
-    pose.rightForearmX = -0.48 * gather + 0.25 * deflect;
-    pose.weaponPitch = 0.18;
-    pose.weaponYaw = -0.62 * gather + 0.72 * deflect;
+    pose.bodyYaw = 0.08 * gather - 0.12 * deflect;
+    pose.bodyPitch = -0.04 * gather + 0.06 * deflect;
   } else if (animation === "BACKSTEP") {
     const hop = Math.sin(Math.PI * p);
     pose.modelY = 0.16 * hop;
