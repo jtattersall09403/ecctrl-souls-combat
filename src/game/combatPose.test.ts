@@ -53,4 +53,13 @@ describe("procedural combat poses", () => {
     expect(impact.weaponForward).toBeGreaterThan(0.2);
     expect(withdrawal.weaponForward).toBeLessThan(0);
   });
+
+  it("adds a short weapon rebound to a blocked attacker", () => {
+    const rebound = combatPoseAt("RECOIL", 0.14);
+    const settled = combatPoseAt("RECOIL", 0.42);
+    expect(rebound.bodyPitch).toBeLessThan(0);
+    expect(Math.abs(rebound.weaponPitch)).toBeGreaterThan(0.1);
+    expect(settled.bodyPitch).toBeCloseTo(0, 6);
+    expect(settled.weaponPitch).toBeCloseTo(0, 6);
+  });
 });

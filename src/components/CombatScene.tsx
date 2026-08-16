@@ -1,20 +1,31 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { CapsuleCollider, Physics, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { Ecctrl, type EcctrlHandle } from "ecctrl";
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import * as THREE from "three";
+import { createAnimationCommand, updateAnimationCommand } from "../game/animationCommand";
 import { combatAudio } from "../game/audio";
+import { BLOCK_HIT_STOP, BLOCK_RECOIL_DURATION, blockRecoilVelocity, resolveGuardImpact } from "../game/blockReaction";
 import { createHitShake, sampleHitShake, type HitShakeImpulse, type HitShakeKind } from "../game/cameraShake";
 import {
   CHARACTER_CAPSULE_HALF_HEIGHT,
   CHARACTER_CAPSULE_RADIUS,
+  CHARACTER_BODY_CENTER_HEIGHT,
+  CHARACTER_DAMPING_C,
   CHARACTER_FLOAT_HEIGHT,
   CHARACTER_MODEL_OFFSET,
+  CHARACTER_RAY_HIT_FORGIVENESS,
+  CHARACTER_RAY_RADIUS,
+  CHARACTER_SPRING_K,
   FALLING_GRAVITY_SCALE,
+  JUMP_IMPULSE_DURATION,
+  JUMP_LAND_DURATION,
   JUMP_GRAVITY_SCALE,
+  JUMP_START_DURATION,
   JUMP_VELOCITY,
 } from "../game/characterPhysics";
 import { selectEnemyIntent } from "../game/enemyAi";
+import { createSoleContactSample, hasSoleSupportContact } from "../game/footContact";
 import { analogueMoveSpeed, cameraRelativeDirection, input, resolveAttackDirection } from "../game/input";
 import { lockOnLocomotionAnimation, lockOnOrientationWarp, lockOnSprintAllowed, lockOnYaws } from "../game/lockOn";
 import { useGameStore } from "../game/store";
@@ -46,12 +57,12 @@ import { AnimatedFighter } from "./AnimatedFighter";
 import { Arena } from "./Arena";
 
 const UP = new THREE.Vector3(0, 1, 0);
-const PLAYER_START = new THREE.Vector3(0, 0.9, 5.5);
-const ENEMY_START = new THREE.Vector3(0, 0.9, -4.5);
+const PLAYER_START = new THREE.Vector3(0, CHARACTER_BODY_CENTER_HEIGHT, 5.5);
+const ENEMY_START = new THREE.Vector3(0, CHARACTER_BODY_CENTER_HEIGHT, -4.5);
 const CRITICAL_FALL_DURATION = 1.55;
 const CRITICAL_GET_UP_DURATION = 1.72;
 
-type EnemyMode = "watching" | "approach" | "strafe" | "attack" | "recover" | "guard" | "parry" | "dodge" | "backstep" | "heal" | "stagger" | "parried" | "critical" | "criticalFall" | "criticalGetUp" | "dead";
+type EnemyMode = "watching" | "approach" | "strafe" | "attack" | "recover" | "guard" | "parry" | "dodge" | "backstep" | "heal" | "stagger" | "recoil" | "parried" | "critical" | "criticalFall" | "criticalGetUp" | "dead";
 
 function AnalogueSpeedLimiter({
   controller,
@@ -161,14 +172,8 @@ function Battle() {
   const playerHitboxActive = useRef(false);
   const enemyHitboxActive = useRef(false);
   const enemyPosition = useRef(ENEMY_START.clone());
-  const [playerAnimation, setPlayerAnimation] = useState<AnimationState>("SWORD_IDLE");
-  const [enemyAnimation, setEnemyAnimation] = useState<AnimationState>("SWORD_IDLE");
-  const [playerAnimationStartAt, setPlayerAnimationStartAt] = useState(0);
-  const [enemyAnimationStartAt, setEnemyAnimationStartAt] = useState(0);
-  const [playerAnimationEpoch, setPlayerAnimationEpoch] = useState(0);
-  const [enemyAnimationEpoch, setEnemyAnimationEpoch] = useState(0);
-  const playerAnimationRef = useRef<AnimationState>("SWORD_IDLE");
-  const enemyAnimationRef = useRef<AnimationState>("SWORD_IDLE");
+  const playerAnimationCommand = useRef(createAnimationCommand("SWORD_IDLE"));
+  const enemyAnimationCommand = useRef(createAnimationCommand("SWORD_IDLE"));
   const playerAction = useRef<CombatAction>("idle");
   const playerActionTime = useRef(0);
   const playerAttack = useRef<AttackDefinition | null>(null);
@@ -190,9 +195,14 @@ function Battle() {
   const movementAllowedRef = useRef(true);
   const playerLocomotionWarp = useRef(0);
   const playerLocomotionReversing = useRef(false);
-  const wasGrounded = useRef(true);
+  const playerMoveSpeed = useRef(0);
+  const enemyMoveSpeed = useRef(0);
+  const playerSoleContact = useRef(createSoleContactSample());
+  const enemySoleContact = useRef(createSoleContactSample());
+  const landingArmed = useRef(false);
   const maximumDownwardSpeed = useRef(0);
   const landingTimer = useRef(0);
+  const jumpStartTimer = useRef(0);
 
   const enemyMode = useRef<EnemyMode>("watching");
   const enemyModeTime = useRef(0);
@@ -243,18 +253,8 @@ function Battle() {
   const damagePulse = useRef(0);
 
   const setAnim = useCallback((target: "player" | "enemy", animation: AnimationState, startAt = 0, restart = false) => {
-    const ref = target === "player" ? playerAnimationRef : enemyAnimationRef;
-    if (ref.current === animation && !restart) return;
-    ref.current = animation;
-    if (target === "player") {
-      setPlayerAnimationStartAt(startAt);
-      setPlayerAnimation(animation);
-      setPlayerAnimationEpoch((value) => value + 1);
-    } else {
-      setEnemyAnimationStartAt(startAt);
-      setEnemyAnimation(animation);
-      setEnemyAnimationEpoch((value) => value + 1);
-    }
+    const command = target === "player" ? playerAnimationCommand.current : enemyAnimationCommand.current;
+    updateAnimationCommand(command, animation, startAt, restart);
   }, []);
 
   const announce = useCallback((text: string, duration = 1.2) => {
@@ -339,17 +339,40 @@ function Battle() {
     const heavy = playerAttack.current?.id === "heavy" || playerAttack.current?.id === "heavy2";
     const reaction = hitReactionForAttack(playerAttack.current);
     if (enemyMode.current === "guard" && !execution) {
-      const staminaDamage = damage * 1.25 * (1 - COMBAT_TUNING.guardStability);
-      if (enemyStamina.current >= staminaDamage) {
-        enemyStamina.current -= staminaDamage;
+      const impact = resolveGuardImpact({
+        health: enemyHealth.current,
+        stamina: enemyStamina.current,
+        incomingDamage: damage,
+        stability: COMBAT_TUNING.guardStability,
+        damageReduction: COMBAT_TUNING.guardDamageReduction,
+      });
+      enemyHealth.current = impact.health;
+      enemyStamina.current = impact.stamina;
+      if (impact.blocked) {
         enemyStaminaCooldown.current = COMBAT_TUNING.staminaRegenDelay;
-        enemyHealth.current = Math.max(0, enemyHealth.current - Math.ceil(damage * (1 - COMBAT_TUNING.guardDamageReduction)));
+        playerHitboxActive.current = false;
+        comboQueued.current = null;
+        hitStop.current = Math.max(hitStop.current, BLOCK_HIT_STOP);
+        const attacker = player.current;
+        if (attacker) {
+          attacker.body.setLinvel(blockRecoilVelocity(
+            attacker.currPos,
+            enemyPosition.current,
+            attacker.body.linvel().y,
+          ), true);
+        }
+        startPlayerAction("recoil", "RECOIL");
         combatAudio.play("guard");
         triggerShake("block");
         announce("ENEMY BLOCKED", 0.6);
+        if (enemyHealth.current <= 0) {
+          lockedOn.current = false;
+          setEnemyMode("dead", "DEATH");
+          combatAudio.play("death");
+          announce("ENEMY FELLED", 4);
+        }
         return true;
       }
-      enemyStamina.current = 0;
       setEnemyMode("parried", "GUARD_BREAK");
       announce("ENEMY GUARD BROKEN", 1.1);
       return true;
@@ -376,7 +399,7 @@ function Battle() {
       setEnemyMode("stagger", reaction.animation);
     }
     return true;
-  }, [announce, setEnemyMode, triggerShake]);
+  }, [announce, setEnemyMode, startPlayerAction, triggerShake]);
 
   const attemptEnemyHit = useCallback(() => {
     if (enemyAttackHit.current || playerHealth.current <= 0) return;
@@ -388,31 +411,51 @@ function Battle() {
 
     if (playerAction.current === "guard" && equipped.current) {
       const incomingDamage = enemyAttack.current.damage;
-      const staminaDamage = incomingDamage * 1.25 * (1 - COMBAT_TUNING.guardStability);
-      const chip = Math.ceil(incomingDamage * (1 - COMBAT_TUNING.guardDamageReduction));
-      if (playerStamina.current >= staminaDamage) {
-        playerStamina.current -= staminaDamage;
-        playerHealth.current = Math.max(0, playerHealth.current - chip);
+      const impact = resolveGuardImpact({
+        health: playerHealth.current,
+        stamina: playerStamina.current,
+        incomingDamage,
+        stability: COMBAT_TUNING.guardStability,
+        damageReduction: COMBAT_TUNING.guardDamageReduction,
+        guardBreakDamage: 18,
+      });
+      playerHealth.current = impact.health;
+      playerStamina.current = impact.stamina;
+      if (impact.blocked) {
         staminaCooldown.current = 1;
+        enemyComboRemaining.current = 0;
+        enemyHitboxActive.current = false;
+        hitStop.current = Math.max(hitStop.current, BLOCK_HIT_STOP);
+        const attacker = enemy.current;
+        if (attacker) {
+          attacker.body.setLinvel(blockRecoilVelocity(
+            attacker.currPos,
+            handle.currPos,
+            attacker.body.linvel().y,
+          ), true);
+        }
+        setEnemyMode("recoil", "RECOIL");
         combatAudio.play("guard");
-        triggerDamageVignette();
         triggerShake("block", {
           x: handle.currPos.x - enemyPosition.current.x,
           z: handle.currPos.z - enemyPosition.current.z,
         });
         announce("BLOCKED");
+        if (playerHealth.current <= 0) {
+          startPlayerAction("dead", "DEATH");
+          combatAudio.play("death");
+          announce("YOU DIED", 8);
+        }
         return;
       }
-      playerStamina.current = 0;
-      playerHealth.current = Math.max(0, playerHealth.current - 18);
-      startPlayerAction("guardBreak", "GUARD_BREAK");
+      startPlayerAction(playerHealth.current <= 0 ? "dead" : "guardBreak", playerHealth.current <= 0 ? "DEATH" : "GUARD_BREAK");
       combatAudio.play("hit");
-      triggerDamageVignette();
+      if (impact.triggerDamageVignette) triggerDamageVignette();
       triggerShake("playerHit", {
         x: handle.currPos.x - enemyPosition.current.x,
         z: handle.currPos.z - enemyPosition.current.z,
       });
-      announce("GUARD BROKEN");
+      announce(playerHealth.current <= 0 ? "YOU DIED" : "GUARD BROKEN", playerHealth.current <= 0 ? 8 : 1.2);
       return;
     }
 
@@ -431,7 +474,7 @@ function Battle() {
     } else {
       startPlayerAction(reaction.action, reaction.animation);
     }
-  }, [announce, startPlayerAction, triggerDamageVignette, triggerShake]);
+  }, [announce, setEnemyMode, startPlayerAction, triggerDamageVignette, triggerShake]);
 
   useEffect(() => input.attach(), []);
   useEffect(() => {
@@ -449,6 +492,7 @@ function Battle() {
       handle.body.setRotation({ x: 0, y: 1, z: 0, w: 0 }, true);
       handle.setForwardDir(new THREE.Vector3(0, 0, -1));
       handle.setLockForward(false);
+      handle.setMovement({ joystick: { x: 0, y: 0 }, run: false, jump: false });
     }
     enemyPosition.current.copy(ENEMY_START);
     if (enemy.current) {
@@ -489,7 +533,16 @@ function Battle() {
     playerLocomotionWarp.current = 0;
     playerLocomotionReversing.current = false;
     enemyLocomotionWarp.current = 0;
+    playerMoveSpeed.current = 0;
+    enemyMoveSpeed.current = 0;
+    playerSoleContact.current.valid = false;
+    playerSoleContact.current.supportGap = Number.POSITIVE_INFINITY;
+    enemySoleContact.current.valid = false;
+    enemySoleContact.current.supportGap = Number.POSITIVE_INFINITY;
+    landingArmed.current = false;
     maximumDownwardSpeed.current = 0;
+    landingTimer.current = 0;
+    jumpStartTimer.current = 0;
     damagePulse.current = 0;
     hitStop.current = 0;
     shake.current = null;
@@ -525,7 +578,14 @@ function Battle() {
     const body = handle.body;
     const playerPos = handle.currPos;
     const enemyHandle = enemy.current;
-    if (enemyHandle) enemyPosition.current.copy(enemyHandle.currPos);
+    if (enemyHandle) {
+      enemyPosition.current.copy(enemyHandle.currPos);
+      enemyMoveSpeed.current = enemyHandle.moveSpeed;
+    } else {
+      enemyMoveSpeed.current = 0;
+      enemySoleContact.current.valid = false;
+      enemySoleContact.current.supportGap = Number.POSITIVE_INFINITY;
+    }
     playerActionTime.current += delta;
     enemyModeTime.current += delta;
     enemyDecision.current -= delta;
@@ -533,20 +593,31 @@ function Battle() {
     staminaCooldown.current -= delta;
     messageTimer.current -= delta;
     landingTimer.current = Math.max(0, landingTimer.current - delta);
+    jumpStartTimer.current = Math.max(0, jumpStartTimer.current - delta);
     if (messageTimer.current <= 0) message.current = "";
 
     const moveMagnitude = Math.min(1, Math.hypot(input.movement.x, input.movement.y));
     moveMagnitudeRef.current = moveMagnitude;
-    if (!handle.isOnGround) maximumDownwardSpeed.current = Math.max(maximumDownwardSpeed.current, -handle.verticalSpeed);
-    if (!wasGrounded.current && handle.isOnGround) {
-      landingTimer.current = 0.28;
+    const playerHasVisualContact = playerSoleContact.current.valid
+      && hasSoleSupportContact(playerSoleContact.current.supportGap);
+    if (!handle.isOnGround) landingArmed.current = true;
+    if (landingArmed.current || !handle.isOnGround) {
+      maximumDownwardSpeed.current = Math.max(maximumDownwardSpeed.current, -handle.verticalSpeed);
+    }
+    if (landingArmed.current && playerHasVisualContact) {
+      landingTimer.current = JUMP_LAND_DURATION;
       if (maximumDownwardSpeed.current > 2.5) triggerShake("landing");
       maximumDownwardSpeed.current = 0;
+      landingArmed.current = false;
     }
-    wasGrounded.current = handle.isOnGround;
     if (input.pressed("dodge")) dodgeHold.current = 0;
     if (input.held("dodge")) dodgeHold.current += delta;
     const jumpStarted = input.pressed("jump") && handle.isOnGround && playerAction.current === "idle";
+    if (jumpStarted) {
+      jumpStartTimer.current = JUMP_START_DURATION;
+      landingTimer.current = 0;
+      maximumDownwardSpeed.current = 0;
+    }
 
     if (input.pressed("lockOn") && enemyHealth.current > 0) {
       lockedOn.current = !lockedOn.current;
@@ -558,6 +629,7 @@ function Battle() {
       && moveMagnitude > 0.15
       && playerAction.current === "idle";
     sprintingRef.current = sprinting;
+    playerMoveSpeed.current = Math.min(handle.moveSpeed, analogueMoveSpeed(moveMagnitude, sprinting));
 
     if (playerAction.current === "roll" && equipped.current) {
       if (input.pressed("light")) rollAttackQueued.current = "light";
@@ -711,7 +783,17 @@ function Battle() {
         combatAudio.play("parry");
         triggerShake("parry");
         announce("YOUR ATTACK WAS PARRIED", 1.1);
-      } else if (weaponActive && !playerAttackHit.current && (playerWeaponOverlaps.current.has("arena-knight") || pairedContact) && enemyEnabled && enemyHealth.current > 0) {
+      } else if (
+        weaponActive
+        && !playerAttackHit.current
+        && (
+          (enemyMode.current === "guard" && playerWeaponOverlaps.current.has("enemy-weapon"))
+          || playerWeaponOverlaps.current.has("arena-knight")
+          || pairedContact
+        )
+        && enemyEnabled
+        && enemyHealth.current > 0
+      ) {
         playerAttackHit.current = damageEnemy(attack.damage, execution);
       }
       const nextAttack = getComboSuccessor(attack, comboQueued.current);
@@ -727,7 +809,8 @@ function Battle() {
         finishPlayerAction();
       }
     } else {
-      playerHitboxActive.current = playerAction.current === "parry" && isParryActive(playerActionTime.current);
+      playerHitboxActive.current = playerAction.current === "guard"
+        || (playerAction.current === "parry" && isParryActive(playerActionTime.current));
       const actionDurations: Partial<Record<CombatAction, number>> = {
         roll: COMBAT_TUNING.rollDuration,
         backstep: 0.52,
@@ -737,6 +820,7 @@ function Battle() {
         unequip: 0.62,
         hit: 0.62,
         hitHeavy: 0.62,
+        recoil: BLOCK_RECOIL_DURATION,
         guardBreak: 1.05,
       };
       const duration = actionDurations[playerAction.current];
@@ -804,12 +888,12 @@ function Battle() {
         ? lockOnLocomotionAnimation(input.movement, moveMagnitude, lockWarp.reversing)
         : null;
       playerLocomotionWarp.current = lockedLocomotion ? lockWarp?.warp ?? 0 : 0;
-      const locomotion = !handle.isOnGround
-        ? "JUMP_IDLE"
-        : jumpStarted
-          ? "JUMP_START"
-          : landingTimer.current > 0
-            ? "JUMP_LAND"
+      const locomotion = jumpStartTimer.current > 0
+        ? "JUMP_START"
+        : landingTimer.current > 0
+          ? "JUMP_LAND"
+          : !handle.isOnGround
+            ? "JUMP_IDLE"
             : sprinting
               ? "SPRINT"
               : lockedLocomotion
@@ -932,9 +1016,9 @@ function Battle() {
         }
       }
       if (enemyMode.current === "approach") {
-        setAnim("enemy", "WALK");
         enemyMoveY = 1;
         enemyRunning = distance > 6;
+        setAnim("enemy", enemyRunning ? "RUN" : "WALK");
       } else if (enemyMode.current === "watching") {
         setAnim("enemy", "SWORD_IDLE");
       }
@@ -965,7 +1049,13 @@ function Battle() {
         combatAudio.play("parry");
         announce("WEAPONS CLASHED — LIGHT ATTACK TO RIPOSTE", 1.5);
         triggerShake("parry", { x: playerPos.x - enemyPosition.current.x, z: playerPos.z - enemyPosition.current.z });
-      } else if (weaponActive && enemyWeaponOverlaps.current.has("player")) {
+      } else if (
+        weaponActive
+        && (
+          (playerAction.current === "guard" && enemyWeaponOverlaps.current.has("player-weapon"))
+          || enemyWeaponOverlaps.current.has("player")
+        )
+      ) {
         attemptEnemyHit();
       }
       const nextCombo = enemyComboRemaining.current === 2
@@ -986,6 +1076,7 @@ function Battle() {
         setEnemyMode("recover", "SWORD_IDLE");
       }
     } else if (enemyMode.current === "guard") {
+      enemyHitboxActive.current = true;
       if (enemyModeTime.current > 0.82) setEnemyMode("watching", "SWORD_IDLE");
     } else if (enemyMode.current === "parry") {
       enemyHitboxActive.current = isParryActive(enemyModeTime.current);
@@ -1015,6 +1106,9 @@ function Battle() {
       setEnemyMode("watching", "SWORD_IDLE");
     } else if (enemyMode.current === "stagger" && enemyModeTime.current > enemyStaggerDuration.current) {
       setEnemyMode("recover", "SWORD_IDLE");
+    } else if (enemyMode.current === "recoil" && enemyModeTime.current > BLOCK_RECOIL_DURATION) {
+      enemyDecision.current = 0.2;
+      setEnemyMode("watching", "SWORD_IDLE");
     } else if (enemyMode.current === "parried" && enemyModeTime.current > 1.75) {
       setEnemyMode("recover", "SWORD_IDLE");
     } else if (enemyMode.current === "critical") {
@@ -1136,23 +1230,26 @@ function Battle() {
         capsuleHalfHeight={CHARACTER_CAPSULE_HALF_HEIGHT}
         capsuleRadius={CHARACTER_CAPSULE_RADIUS}
         floatHeight={CHARACTER_FLOAT_HEIGHT}
-        rayHitForgiveness={0.1}
-        springK={92}
-        dampingC={7}
+        rayRadius={CHARACTER_RAY_RADIUS}
+        rayHitForgiveness={CHARACTER_RAY_HIT_FORGIVENESS}
+        springK={CHARACTER_SPRING_K}
+        dampingC={CHARACTER_DAMPING_C}
         jumpVel={JUMP_VELOCITY}
+        jumpDuration={JUMP_IMPULSE_DURATION}
         colliders={false}
         useCustomForward
         name="player"
       >
         <AnimatedFighter
-          animation={playerAnimation}
-          animationStartAt={playerAnimationStartAt}
-          animationEpoch={playerAnimationEpoch}
+          animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
-          animationStateRef={playerAnimationRef}
           locomotionWarpRef={playerLocomotionWarp}
+          moveSpeedRef={playerMoveSpeed}
+          controllerRef={player}
+          soleContactRef={playerSoleContact}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped={equipped.current}
+          equippedRef={equipped}
           weaponRef={playerWeapon}
         />
       </Ecctrl>
@@ -1180,19 +1277,20 @@ function Battle() {
             capsuleHalfHeight={CHARACTER_CAPSULE_HALF_HEIGHT}
             capsuleRadius={CHARACTER_CAPSULE_RADIUS}
             floatHeight={CHARACTER_FLOAT_HEIGHT}
-            rayHitForgiveness={0.1}
-            springK={92}
-            dampingC={7}
+            rayRadius={CHARACTER_RAY_RADIUS}
+            rayHitForgiveness={CHARACTER_RAY_HIT_FORGIVENESS}
+            springK={CHARACTER_SPRING_K}
+            dampingC={CHARACTER_DAMPING_C}
             colliders={false}
             name="arena-knight"
           >
             <AnimatedFighter
-              animation={enemyAnimation}
-              animationStartAt={enemyAnimationStartAt}
-              animationEpoch={enemyAnimationEpoch}
+              animationCommandRef={enemyAnimationCommand}
               animationTimeRef={enemyModeTime}
-              animationStateRef={enemyAnimationRef}
               locomotionWarpRef={enemyLocomotionWarp}
+              moveSpeedRef={enemyMoveSpeed}
+              controllerRef={enemy}
+              soleContactRef={enemySoleContact}
               modelOffsetY={CHARACTER_MODEL_OFFSET}
               equipped
               enemy

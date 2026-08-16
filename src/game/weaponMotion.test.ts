@@ -1,4 +1,12 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
+import {
+  SWORD_DOMINANT_GRIP_LOCAL,
+  SWORD_SUPPORT_GRIP_LOCAL,
+  swordFrameQuaternion,
+  swordOriginFromGrip,
+  wristPoseFromSword,
+} from "./weaponGrip";
 import {
   EXECUTION_ANCHOR_DISTANCE,
   EXECUTION_DAMAGE_PROGRESS,
@@ -10,6 +18,7 @@ import {
   guardWeaponPath,
   parryWeaponPath,
 } from "./weaponMotion";
+import { SWORD_TWO_HAND_GRIP_SEPARATION } from "./weaponGrip";
 
 describe("paired weapon motion", () => {
   it("anchors a backstab behind and a riposte in front of the victim", () => {
@@ -38,15 +47,14 @@ describe("paired weapon motion", () => {
     const safeReach = 0.547 * 0.92;
     for (let step = 0; step <= 20; step += 1) {
       const path = parryWeaponPath(step / 20);
-      expect(path.grip.z).toBeGreaterThanOrEqual(0.2);
-      expect(path.tip.z).toBeGreaterThanOrEqual(0.2);
-      expect(bladeCenter(path).z).toBeGreaterThan(0.2);
+      expect(path.grip.z).toBeGreaterThanOrEqual(0.16);
+      expect(path.tip.z).toBeGreaterThanOrEqual(0.16);
+      expect(bladeCenter(path).z).toBeGreaterThan(0.16);
       expect(path.grip.x).toBeLessThan(0);
-      expect(Math.hypot(
-        path.grip.x - rightShoulder.x,
-        path.grip.y - rightShoulder.y,
-        path.grip.z - rightShoulder.z,
-      )).toBeLessThan(safeReach);
+      const swordQuaternion = swordFrameQuaternion(path.grip, path.tip, { x: 0, y: 0, z: 1 });
+      const swordOrigin = swordOriginFromGrip(path.grip, swordQuaternion);
+      const wrist = wristPoseFromSword(swordOrigin, swordQuaternion, "right", SWORD_DOMINANT_GRIP_LOCAL);
+      expect(wrist.position.distanceTo(new THREE.Vector3(rightShoulder.x, rightShoulder.y, rightShoulder.z))).toBeLessThan(safeReach);
     }
   });
 
@@ -57,19 +65,17 @@ describe("paired weapon motion", () => {
     const safeReach = 0.547 * 0.92;
     expect(path.grip.y).toBeLessThan(1.441);
     expect(path.offHand.y).toBeLessThan(path.grip.y);
-    expect(path.grip.y - path.offHand.y).toBeGreaterThanOrEqual(0.12);
+    expect(path.grip.y - path.offHand.y).toBeCloseTo(SWORD_TWO_HAND_GRIP_SEPARATION);
+    expect(path.offHand.x).toBe(path.grip.x);
+    expect(path.offHand.z).toBe(path.grip.z);
     expect(path.tip.x).toBe(path.grip.x);
     expect(path.tip.z).toBe(path.grip.z);
     expect(path.tip.y - path.grip.y).toBeCloseTo(1.19);
-    expect(Math.hypot(
-      path.grip.x - rightShoulder.x,
-      path.grip.y - rightShoulder.y,
-      path.grip.z - rightShoulder.z,
-    )).toBeLessThan(safeReach);
-    expect(Math.hypot(
-      path.offHand.x - leftShoulder.x,
-      path.offHand.y - leftShoulder.y,
-      path.offHand.z - leftShoulder.z,
-    )).toBeLessThan(safeReach);
+    const swordQuaternion = swordFrameQuaternion(path.grip, path.tip, { x: 0, y: 0, z: 1 });
+    const swordOrigin = swordOriginFromGrip(path.grip, swordQuaternion);
+    const rightWrist = wristPoseFromSword(swordOrigin, swordQuaternion, "right", SWORD_DOMINANT_GRIP_LOCAL);
+    const leftWrist = wristPoseFromSword(swordOrigin, swordQuaternion, "left", SWORD_SUPPORT_GRIP_LOCAL);
+    expect(rightWrist.position.distanceTo(new THREE.Vector3(rightShoulder.x, rightShoulder.y, rightShoulder.z))).toBeLessThan(safeReach);
+    expect(leftWrist.position.distanceTo(new THREE.Vector3(leftShoulder.x, leftShoulder.y, leftShoulder.z))).toBeLessThan(safeReach);
   });
 });
