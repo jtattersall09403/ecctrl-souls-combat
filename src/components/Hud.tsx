@@ -146,6 +146,7 @@ export function Hud() {
               <dt>Light / heavy</dt><dd>Mouse 1 / R</dd>
               <dt>Guard / parry</dt><dd>Mouse 2 / F</dd>
               <dt>Dodge / sprint</dt><dd>Space tap / hold</dd>
+              <dt>Jump</dt><dd>J</dd>
               <dt>Lock / heal / equip</dt><dd>Q / H / E</dd>
             </dl>
             <dl>
@@ -153,10 +154,11 @@ export function Hud() {
               <dt>Light / heavy</dt><dd>R / ZR</dd>
               <dt>Guard / parry</dt><dd>L / ZL</dd>
               <dt>Dodge / sprint</dt><dd>B tap / hold</dd>
+              <dt>Jump</dt><dd>L3</dd>
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
             </dl>
           </div>
-          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
+          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Chain R or ZR presses during attack recovery for light and heavy combos. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
         </aside>
       )}
 
@@ -173,6 +175,7 @@ export function Hud() {
             <ActionButton action="dodge" label="B" sublabel="DODGE" className="dodge" />
             <ActionButton action="heal" label="X" sublabel="ESTUS" className="heal" />
             <ActionButton action="equip" label="→" sublabel="EQUIP" className="equip" />
+            <ActionButton action="jump" label="A" sublabel="JUMP" className="jump" />
           </div>
         </div>
       )}

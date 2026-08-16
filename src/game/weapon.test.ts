@@ -24,6 +24,14 @@ describe("straight sword moveset", () => {
     expect(heavy.windup).toBeGreaterThan(light1.windup);
   });
 
+  it("defines complete stamina-limited light and heavy chains", () => {
+    const { light1, light2, light3, heavy, heavy2 } = STRAIGHT_SWORD.attacks;
+    expect([light1.animation, light2.animation, light3.animation]).toEqual(["LIGHT_1", "LIGHT_2", "LIGHT_3"]);
+    expect([heavy.animation, heavy2.animation]).toEqual(["HEAVY", "HEAVY_2"]);
+    expect(light1.stamina + light2.stamina + light3.stamina).toBe(92);
+    expect(heavy.stamina + heavy2.stamina).toBe(93);
+  });
+
   it("recognises a close rear approach and rejects front or distant attacks", () => {
     const facingNorth = { x: 0, z: 1 };
     expect(isBackstabPosition(facingNorth, { x: 0.1, z: -1 }, 1.2)).toBe(true);

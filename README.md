@@ -13,7 +13,7 @@ The Pages build is published from `main`. Desktop and mobile browsers load the s
 - lock-on camera and unlocked orbit camera
 - stamina-gated attacks, sprinting, blocking, parrying, and dodging
 - roll invulnerability frames, attack windup/active/recovery phases, hit-stop, and camera shake
-- one-handed straight-sword light chain, heavy attack, parry riposte, and positional backstab
+- one-handed straight-sword three-hit light chain, two-hit heavy chain, parry riposte, and positional backstab
 - guard stability, chip damage, guard break, hit reactions, healing, death, and reset
 - one enemy with spacing, approach, telegraph, active attack, recovery, stagger, parried, and death states
 - equip/unequip state with a data-defined weapon moveset
@@ -32,6 +32,7 @@ The Pages build is published from `main`. Desktop and mobile browsers load the s
 | Parry | F or Mouse 3 | ZL button | ZL |
 | Dodge | Tap Space | Tap B | Tap B |
 | Sprint | Hold Space while moving | Hold B while moving | Hold B while moving |
+| Jump | J | A button | Left-stick click (L3) |
 | Lock on/off | Q | R3 button | Right-stick click (R3) |
 | Use Estus | H | X button | X |
 | Equip/unequip sword | E | → button | D-pad right |
@@ -39,6 +40,8 @@ The Pages build is published from `main`. Desktop and mobile browsers load the s
 | Riposte | Light attack after a successful parry | R after a successful parry | R after a successful parry |
 
 Gamepad mappings use standard Gamepad API **physical button positions**. The GameSir X2s Type-C uses Nintendo-style ABXY caps; the bottom face button is displayed as B.
+
+Press light attack again during a light attack's recovery to continue the three-hit chain. Press heavy attack again during heavy recovery to continue the two-hit chain. Each combo step has its own animation, timing, stamina cost, and damage.
 
 ## Development
 

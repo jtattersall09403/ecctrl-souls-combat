@@ -8,7 +8,8 @@ export type InputAction =
   | "dodge"
   | "lockOn"
   | "heal"
-  | "equip";
+  | "equip"
+  | "jump";
 
 // Gamepad API indices describe physical positions. These labels match the
 // Nintendo-layout face caps on the GameSir X2s Type-C.
@@ -21,6 +22,7 @@ export const SWITCH_GAMEPAD = {
   R_LIGHT: 5,
   ZL_PARRY: 6,
   ZR_HEAVY: 7,
+  L_STICK_JUMP: 9,
   R_STICK_LOCK: 10,
   DPAD_RIGHT_EQUIP: 15,
 } as const;
@@ -129,6 +131,7 @@ export class InputController {
     this.current.set("lockOn", active("lockOn") || this.keys.has("KeyQ") || button(SWITCH_GAMEPAD.R_STICK_LOCK));
     this.current.set("heal", active("heal") || this.keys.has("KeyH") || button(SWITCH_GAMEPAD.X_TOP_ITEM));
     this.current.set("equip", active("equip") || this.keys.has("KeyE") || button(SWITCH_GAMEPAD.DPAD_RIGHT_EQUIP));
+    this.current.set("jump", active("jump") || this.keys.has("KeyJ") || button(SWITCH_GAMEPAD.L_STICK_JUMP));
   }
 
   held(action: InputAction) {
@@ -145,3 +148,18 @@ export class InputController {
 }
 
 export const input = new InputController();
+
+export function cameraRelativeDirection(movement: Vec2, cameraYaw: number) {
+  const sin = Math.sin(cameraYaw);
+  const cos = Math.cos(cameraYaw);
+  return {
+    x: movement.x * cos - movement.y * sin,
+    y: 0,
+    z: -movement.x * sin - movement.y * cos,
+  };
+}
+
+export function analogueMoveSpeed(magnitude: number, sprinting: boolean) {
+  const amount = Math.min(1, Math.max(0, magnitude));
+  return (sprinting ? 5.5 : 3.6) * amount;
+}

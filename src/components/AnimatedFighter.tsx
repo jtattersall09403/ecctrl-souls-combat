@@ -16,14 +16,16 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
   JUMP_LAND: { clip: "Jump_Land", speed: 1.35 },
   SWORD_IDLE: { clip: "Sword_Idle", loop: true },
   LIGHT_1: { clip: "Sword_Attack", speed: 1.12, fade: 0.06 },
-  LIGHT_2: { clip: "Sword_Attack_RM", speed: 1.28, fade: 0.05 },
-  HEAVY: { clip: "Sword_Attack", speed: 0.68, fade: 0.08 },
+  LIGHT_2: { clip: "Punch_Cross", speed: 1.05, fade: 0.05 },
+  LIGHT_3: { clip: "Punch_Jab", speed: 0.9, fade: 0.05 },
+  HEAVY: { clip: "Pistol_Shoot", speed: 0.55, fade: 0.08 },
+  HEAVY_2: { clip: "Spell_Simple_Shoot", speed: 0.68, fade: 0.07 },
   ROLL: { clip: "Roll", speed: 1.05, fade: 0.04 },
   BACKSTEP: { clip: "Roll_RM", speed: 1.2, fade: 0.04 },
-  GUARD: { clip: "Sword_Idle", loop: true, speed: 0.12 },
-  PARRY: { clip: "Punch_Cross", speed: 1.1, fade: 0.04 },
-  RIPOSTE: { clip: "Sword_Attack_RM", speed: 0.82, fade: 0.04 },
-  BACKSTAB: { clip: "Sword_Attack_RM", speed: 0.58, fade: 0.04 },
+  GUARD: { clip: "Pistol_Aim_Neutral", loop: true, speed: 0.12, fade: 0.08 },
+  PARRY: { clip: "Punch_Cross", speed: 1.28, fade: 0.04 },
+  RIPOSTE: { clip: "Punch_Jab", speed: 0.68, fade: 0.04 },
+  BACKSTAB: { clip: "Punch_Jab", speed: 0.58, fade: 0.04 },
   BACKSTABBED: { clip: "Hit_Chest", speed: 0.48, fade: 0.03 },
   HEAL: { clip: "Spell_Simple_Shoot", speed: 0.72 },
   EQUIP: { clip: "Interact", speed: 1.25 },
@@ -36,7 +38,7 @@ const CLIPS: Record<AnimationState, ClipSettings> = {
 function makeSword() {
   const sword = new THREE.Group();
   sword.name = "WeatheredStraightSword";
-  const steel = new THREE.MeshStandardMaterial({ color: 0x9da0a0, roughness: 0.38, metalness: 0.78 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd9dde0, roughness: 0.32, metalness: 0.82, emissive: 0x272a2c, emissiveIntensity: 0.3 });
   const leather = new THREE.MeshStandardMaterial({ color: 0x241711, roughness: 0.86 });
   const blade = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.83, 0.018), steel);
   blade.position.y = 0.53;
@@ -87,10 +89,10 @@ export function AnimatedFighter({
   }, [enemy, model]);
 
   useLayoutEffect(() => {
-    const hand = model.getObjectByName("DEF-hand.R");
+    const hand = model.getObjectByName("DEF-handR");
     if (!hand) return;
-    sword.position.set(0.02, 0.02, 0.03);
-    sword.rotation.set(Math.PI / 2, 0, Math.PI);
+    sword.position.set(0, 0.04, 0.015);
+    sword.rotation.set(0, 0, 0);
     hand.add(sword);
     return () => {
       hand.remove(sword);
