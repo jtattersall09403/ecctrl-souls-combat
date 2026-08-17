@@ -16,7 +16,7 @@ import {
   pointSupportPlaneGap,
   soleGroundCorrection,
 } from "./footContact";
-import { JUMP_START_DURATION, JUMP_START_PLAYBACK_RATE } from "./characterPhysics";
+import { JUMP_START_DURATION, JUMP_START_PLAYBACK_RATE } from "../physics/characterPhysics";
 
 describe("visible sole contact", () => {
   it("starts with an invalid contact sample until the rig publishes markers", () => {

@@ -3,9 +3,9 @@ import {
   JUMP_START_DURATION,
   JUMP_START_PLAYBACK_RATE,
   JUMP_START_SOURCE_DURATION,
-} from "./characterPhysics";
+} from "../physics/characterPhysics";
 
-export { JUMP_LAND_SOURCE_DURATION, JUMP_START_SOURCE_DURATION } from "./characterPhysics";
+export { JUMP_LAND_SOURCE_DURATION, JUMP_START_SOURCE_DURATION } from "../physics/characterPhysics";
 
 export type Point3Like = Readonly<{ x: number; y: number; z: number }>;
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { input, type InputAction } from "../game/input";
-import { useGameStore } from "../game/store";
+import { input, type InputAction } from "../game/io/input";
+import { useGameStore } from "../game/core/store";
 import { FullscreenButton } from "./FullscreenButton";
 
 function Bar({ value, max, className, label }: { value: number; max: number; className: string; label: string }) {

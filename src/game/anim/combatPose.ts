@@ -1,6 +1,6 @@
-import type { AnimationState } from "./types";
-import { BLOCK_RECOIL_DURATION } from "./blockReaction";
-import { STRAIGHT_SWORD } from "./weapon";
+import type { AnimationState } from "../core/types";
+import { BLOCK_RECOIL_DURATION } from "../combat/blockReaction";
+import { STRAIGHT_SWORD } from "../combat/weapon";
 
 export type CombatPose = {
   bodyPitch: number;

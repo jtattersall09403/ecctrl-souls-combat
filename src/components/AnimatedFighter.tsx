@@ -4,17 +4,17 @@ import type { EcctrlHandle } from "ecctrl";
 import { useLayoutEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import type { AnimationCommand } from "../game/animationCommand";
-import { combatPoseAt } from "../game/combatPose";
-import { JUMP_LAND_PLAYBACK_RATE, JUMP_START_PLAYBACK_RATE } from "../game/characterPhysics";
+import type { AnimationCommand } from "../game/anim/animationCommand";
+import { combatPoseAt } from "../game/anim/combatPose";
+import { JUMP_LAND_PLAYBACK_RATE, JUMP_START_PLAYBACK_RATE } from "../game/physics/characterPhysics";
 import {
   CALIBRATED_SOLE_MARKERS,
   minimumSoleSupportGap,
   soleGroundCorrection,
   type SoleContactSample,
-} from "../game/footContact";
-import { dampLockOnOrientationWarp, walkLoopTimeScale } from "../game/lockOn";
-import type { AnimationState } from "../game/types";
+} from "../game/anim/footContact";
+import { dampLockOnOrientationWarp, walkLoopTimeScale } from "../game/anim/lockOn";
+import type { AnimationState } from "../game/core/types";
 import {
   SWORD_DOMINANT_GRIP_LOCAL,
   SWORD_SUPPORT_GRIP_LOCAL,
@@ -25,9 +25,9 @@ import {
   swordSocketPosition,
   swordSocketQuaternion,
   wristPoseFromSword,
-} from "../game/weaponGrip";
-import { LIGHT_COMBO_CLIP, LIGHT_COMBO_PLAYBACK, sampleLightClipTime } from "../game/weapon";
-import { executionWeaponPath, guardWeaponPath, parryWeaponPath } from "../game/weaponMotion";
+} from "../game/anim/weaponGrip";
+import { LIGHT_COMBO_CLIP, LIGHT_COMBO_PLAYBACK, sampleLightClipTime } from "../game/combat/weapon";
+import { executionWeaponPath, guardWeaponPath, parryWeaponPath } from "../game/anim/weaponMotion";
 
 type ClipSettings = { clip: string; loop?: boolean; speed?: number; fade?: number; sourceOffset?: number };
 const LOCOMOTION_STATES = new Set<AnimationState>([

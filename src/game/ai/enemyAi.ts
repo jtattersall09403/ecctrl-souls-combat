@@ -1,4 +1,4 @@
-import type { CombatAction, CombatPhase } from "./types";
+import type { CombatAction, CombatPhase } from "../core/types";
 
 export type EnemyIntent = "approach" | "strafe" | "lightCombo" | "heavy" | "guard" | "parry" | "dodge" | "backstep" | "heal";
 

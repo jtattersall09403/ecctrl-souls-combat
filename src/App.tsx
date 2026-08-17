@@ -3,8 +3,8 @@ import { useState } from "react";
 import { CombatScene } from "./components/CombatScene";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
 import { Hud } from "./components/Hud";
-import { combatAudio } from "./game/audio";
-import { useGameStore } from "./game/store";
+import { combatAudio } from "./game/fx/audio";
+import { useGameStore } from "./game/core/store";
 
 export function App() {
   const started = useGameStore((state) => state.started);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { combatPoseAt } from "./combatPose";
-import { STRAIGHT_SWORD, comboTransitionTime } from "./weapon";
+import { STRAIGHT_SWORD, comboTransitionTime } from "../combat/weapon";
 
 describe("procedural combat poses", () => {
   it("makes the second light attack an opposing backswing", () => {

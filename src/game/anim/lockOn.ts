@@ -1,4 +1,4 @@
-import type { AnimationState, Vec2 } from "./types";
+import type { AnimationState, Vec2 } from "../core/types";
 
 export const WALK_LOOP_PLANTED_SPEED = 1.046;
 export const MAX_WALK_LOOP_TIME_SCALE = 3.5;

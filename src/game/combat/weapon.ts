@@ -1,4 +1,4 @@
-import type { AnimationState, CombatAction, WeaponDefinition } from "./types";
+import type { AnimationState, CombatAction, WeaponDefinition } from "../core/types";
 
 export const LIGHT_ATTACK_BASE_DAMAGE = 24;
 export const CRITICAL_DAMAGE_MULTIPLIER = 2;

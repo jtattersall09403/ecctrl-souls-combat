@@ -1,4 +1,4 @@
-import type { AnimationState } from "./types";
+import type { AnimationState } from "../core/types";
 
 export type AnimationCommand = {
   state: AnimationState;
