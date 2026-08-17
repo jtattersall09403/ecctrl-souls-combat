@@ -52,6 +52,8 @@ npm install
 npm run dev
 ```
 
+The dev server listens on `0.0.0.0:8081`. Use `http://localhost:8081/`.
+
 Validation:
 
 ```bash
@@ -60,11 +62,27 @@ npm run typecheck
 npm run build
 ```
 
+## Project layout
+
+`src/game/` holds framework-free combat logic, split by concern so it can be tested in isolation and ported without React/Three.js:
+
+| Folder | Contents |
+| --- | --- |
+| `core/` | Shared types, the HUD-facing zustand store, and the fixed-timestep loop helper |
+| `combat/` | Weapon movesets and tuning, the `Fighter` actor model, shared hit resolution, player intent, and the combat event bus |
+| `ai/` | The enemy utility-AI intent scorer |
+| `anim/` | Animation command/pose sampling, weapon grip and motion IK, foot contact, and lock-on math |
+| `physics/` | Character capsule and jump tuning constants |
+| `io/` | Keyboard/mouse/gamepad/touch input controller |
+| `fx/` | Audio synthesis and camera shake |
+
+Every module in `src/game/` has a colocated `*.test.ts`. `src/components/` contains the React Three Fiber view layer (`CombatScene`, `AnimatedFighter`, `Arena`, `Hud`) that reads this state.
+
 ## Extending weapons and movesets
 
-Combat data lives in `src/game/weapon.ts`. `WeaponDefinition` separates timing, stamina, damage, reach, arc, lunge, hit-stop, and animation identifiers from the combat controller. Add a weapon definition and matching animation graph entries in `AnimatedFighter.tsx`; no enemy-AI or input rewrite is required.
+Combat data lives in `src/game/combat/weapon.ts`. `WeaponDefinition` separates timing, stamina, damage, reach, arc, lunge, hit-stop, and animation identifiers from the combat controller. Add a weapon definition and matching animation graph entries in `AnimatedFighter.tsx`; no enemy-AI or input rewrite is required.
 
-The arena, HUD, input adapter, animation model, and combat rules are separate components so the controller and combat package can be moved into another Three.js setting.
+The arena, HUD, input adapter, animation model, and combat rules are separate components so the controller and combat package can be moved into another Three.js setting. `src/game/combat/fighter.ts` and `resolveHit.ts` are the actor model and hit-resolution rules shared by the player and the enemy; `intent.ts` and `events.ts` are the seams for swapping the input source or the audio/camera/HUD side effects when this is ported into a larger project.
 
 ## GitHub Pages
 
