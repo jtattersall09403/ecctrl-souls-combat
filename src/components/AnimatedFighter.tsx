@@ -161,6 +161,7 @@ export function AnimatedFighter({
   const groundCorrectionWorld = useMemo(() => new THREE.Vector3(), []);
   const groundCorrectionLocal = useMemo(() => new THREE.Vector3(), []);
   const worldGrip = useMemo(() => new THREE.Vector3(), []);
+  const lodProbe = useMemo(() => new THREE.Vector3(), []);
   const worldTip = useMemo(() => new THREE.Vector3(), []);
   const worldOffHand = useMemo(() => new THREE.Vector3(), []);
   const shoulderPosition = useMemo(() => new THREE.Vector3(), []);
@@ -271,7 +272,7 @@ export function AnimatedFighter({
     };
   }, [model, socketPosition, socketQuaternion, sword, weaponMount, weaponRef]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const command = animationCommandRef.current;
     if (consumedAnimationSerial.current !== command.serial) {
       const animation = command.state;
@@ -513,7 +514,14 @@ export function AnimatedFighter({
     const controller = controllerRef?.current;
     const contactSample = soleContactRef?.current;
     const visualRoot = visual.current;
-    if (controller && contactSample && visualRoot && soleMarkers.every((marker) => marker.bone)) {
+    // Animation LOD: the foot-contact solve is the only always-on per-frame
+    // extra. Skip it for actors far from the camera so a crowd stays cheap.
+    let groundingInRange = true;
+    if (visualRoot) {
+      visualRoot.getWorldPosition(lodProbe);
+      groundingInRange = lodProbe.distanceToSquared(state.camera.position) < 26 * 26;
+    }
+    if (groundingInRange && controller && contactSample && visualRoot && soleMarkers.every((marker) => marker.bone)) {
       root.current?.updateWorldMatrix(true, true);
       for (const marker of soleMarkers) {
         marker.worldPosition.copy(marker.localPosition);

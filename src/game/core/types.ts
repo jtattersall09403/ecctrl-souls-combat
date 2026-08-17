@@ -85,6 +85,7 @@ export type GameSnapshot = {
   estus: number;
   equipped: boolean;
   lockedOn: boolean;
+  lockedTarget: number;
   playerAction: CombatAction;
   enemyAction: string;
   message: string;
@@ -93,6 +94,7 @@ export type GameSnapshot = {
   damagePulse: number;
   enemyEnabled: boolean;
   enemyAiEnabled: boolean;
+  enemyCount: number;
   showHitboxes: boolean;
   resetToken: number;
 };

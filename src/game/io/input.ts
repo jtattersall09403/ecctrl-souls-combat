@@ -9,7 +9,9 @@ export type InputAction =
   | "lockOn"
   | "heal"
   | "equip"
-  | "jump";
+  | "jump"
+  | "targetLeft"
+  | "targetRight";
 
 // Gamepad API indices describe physical positions. These labels match the
 // Nintendo-layout face caps on the GameSir X2s Type-C.
@@ -132,6 +134,11 @@ export class InputController {
     this.current.set("heal", active("heal") || this.keys.has("KeyH") || button(SWITCH_GAMEPAD.X_TOP_ITEM));
     this.current.set("equip", active("equip") || this.keys.has("KeyE") || button(SWITCH_GAMEPAD.DPAD_RIGHT_EQUIP));
     this.current.set("jump", active("jump") || this.keys.has("KeyJ") || button(SWITCH_GAMEPAD.A_RIGHT_JUMP) || button(SWITCH_GAMEPAD.L_STICK_JUMP));
+    // When locked on, the right stick is free for target switching; the frame
+    // ignores camera input in that mode. `pressed` turns a stick push into one edge.
+    const rightStickX = pad ? deadZone(pad.axes[2] ?? 0) : 0;
+    this.current.set("targetLeft", active("targetLeft") || this.keys.has("Comma") || rightStickX < -0.55);
+    this.current.set("targetRight", active("targetRight") || this.keys.has("Period") || rightStickX > 0.55);
   }
 
   held(action: InputAction) {

@@ -19,6 +19,8 @@ export type PlayerIntent = {
   equipPressed: boolean;
   jumpPressed: boolean;
   jumpHeld: boolean;
+  targetLeftPressed: boolean;
+  targetRightPressed: boolean;
 };
 
 export function inputToIntent(source: InputController): PlayerIntent {
@@ -37,5 +39,7 @@ export function inputToIntent(source: InputController): PlayerIntent {
     equipPressed: source.pressed("equip"),
     jumpPressed: source.pressed("jump"),
     jumpHeld: source.held("jump"),
+    targetLeftPressed: source.pressed("targetLeft"),
+    targetRightPressed: source.pressed("targetRight"),
   };
 }

@@ -54,3 +54,6 @@ export const ENEMY_LOCOMOTION = {
   decisionMin: 0.3,
   decisionJitter: 0.2,
 } as const;
+
+export const DEFAULT_ENEMY_COUNT = 1;
+export const MAX_ENEMIES = 3;

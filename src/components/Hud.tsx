@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { input, type InputAction } from "../game/io/input";
 import { useGameStore } from "../game/core/store";
+import { MAX_ENEMIES } from "../game/combat/tuning";
 import { FullscreenButton } from "./FullscreenButton";
 
 function Bar({ value, max, className, label }: { value: number; max: number; className: string; label: string }) {
@@ -159,6 +160,23 @@ export function Hud() {
           />
           Enemy attacks
         </label>
+        <label className="enemy-count">
+          Enemies: {state.enemyCount}
+          <button
+            type="button"
+            disabled={!state.enemyEnabled || state.enemyCount <= 1}
+            onClick={() => state.patch({ enemyCount: Math.max(1, state.enemyCount - 1) })}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            disabled={!state.enemyEnabled || state.enemyCount >= MAX_ENEMIES}
+            onClick={() => state.patch({ enemyCount: Math.min(MAX_ENEMIES, state.enemyCount + 1) })}
+          >
+            +
+          </button>
+        </label>
         <label>
           <input
             type="checkbox"
@@ -183,6 +201,7 @@ export function Hud() {
               <dt>Dodge / sprint</dt><dd>Space tap / hold</dd>
               <dt>Jump</dt><dd>J</dd>
               <dt>Lock / heal / equip</dt><dd>Q / H / E</dd>
+              <dt>Switch target</dt><dd>, / .</dd>
             </dl>
             <dl>
               <dt>Move / camera</dt><dd>L stick / R stick</dd>
@@ -191,6 +210,7 @@ export function Hud() {
               <dt>Dodge / sprint</dt><dd>B tap / hold</dd>
               <dt>Jump</dt><dd>A / L3</dd>
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
+              <dt>Switch target</dt><dd>Right stick ←/→</dd>
             </dl>
           </div>
           <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Press R or ZR again during the current swing to chain without recovering between attacks. An attack pressed during a roll comes out as the roll ends. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
@@ -203,6 +223,8 @@ export function Hud() {
           <TouchJoystick />
           <div className="touch-actions">
             <ActionButton action="lockOn" label="R3" sublabel="LOCK" className="lock" />
+            <ActionButton action="targetLeft" label="◀" sublabel="TARGET" className="target-left" />
+            <ActionButton action="targetRight" label="▶" sublabel="TARGET" className="target-right" />
             <ActionButton action="guard" label="L" sublabel="GUARD" className="guard" />
             <ActionButton action="parry" label="ZL" sublabel="PARRY" className="parry" />
             <ActionButton action="light" label="R" sublabel="LIGHT" className="light" />
