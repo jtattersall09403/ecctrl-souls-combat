@@ -67,7 +67,7 @@ import {
   executionBladeIntersectsVictim,
   executionFacingYaw,
 } from "../game/anim/weaponMotion";
-import { AnimatedFighter } from "./AnimatedFighter";
+import { SkyrimFighter } from "./SkyrimFighter";
 import { Arena } from "./Arena";
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -246,13 +246,9 @@ function EnemyActor({ runtime, reticleVisible }: { runtime: EnemyRuntime; reticl
         colliders={false}
         name={runtime.bodyName}
       >
-        <AnimatedFighter
+        <SkyrimFighter
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
-          locomotionWarpRef={runtime.locomotionWarp}
-          moveSpeedRef={runtime.moveSpeed}
-          controllerRef={runtime.handle}
-          soleContactRef={runtime.soleContact}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped
           enemy
@@ -775,8 +771,9 @@ function Battle() {
 
     const moveMagnitude = Math.min(1, Math.hypot(intent.move.x, intent.move.y));
     moveMagnitudeRef.current = moveMagnitude;
-    const playerHasVisualContact = playerSoleContact.current.valid
-      && hasSoleSupportContact(playerSoleContact.current.supportGap);
+    // Landing is reported by the controller's own grounding, not visual soles
+    // (the Skyrim actor carries no foot-contact solve).
+    const playerHasVisualContact = handle.isOnGround;
     if (!handle.isOnGround) landingArmed.current = true;
     if (landingArmed.current || !handle.isOnGround) {
       maximumDownwardSpeed.current = Math.max(maximumDownwardSpeed.current, -handle.verticalSpeed);
@@ -1471,13 +1468,9 @@ function Battle() {
         useCustomForward
         name="player"
       >
-        <AnimatedFighter
+        <SkyrimFighter
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
-          locomotionWarpRef={playerLocomotionWarp}
-          moveSpeedRef={playerMoveSpeed}
-          controllerRef={player}
-          soleContactRef={playerSoleContact}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped={equipped.current}
           equippedRef={equipped}
