@@ -38,6 +38,10 @@ const ANIMATIONS = manifest.animations as unknown as Record<string, ClipConfig>;
 
 export const CHARACTER_GLB = "character-dunmer-combat.glb";
 
+// Static Skyrim weapon GLB (steel sword), built by the asset pipeline. Attaches
+// to the rig's native `Weapon` hand socket at identity.
+export const WEAPON_GLB = "weapon-steel-sword.glb";
+
 export const RIG_ROOT_BONE = RIG.rootBone;
 export const RIG_SOCKETS = RIG.sockets;
 export const CHARACTER_SCALE = RIG.recommendedScale;

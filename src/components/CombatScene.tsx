@@ -151,7 +151,8 @@ function WeaponHitbox({
       return;
     }
     weapon.current.updateWorldMatrix(true, false);
-    center.set(0, 0.58, 0).applyMatrix4(weapon.current.matrixWorld);
+    // Blade runs along the weapon frame's +Z from the grip at the origin.
+    center.set(0, 0, 0.42).applyMatrix4(weapon.current.matrixWorld);
     weapon.current.getWorldQuaternion(rotation);
     body.current.setNextKinematicTranslation(center);
     body.current.setNextKinematicRotation(rotation);
@@ -167,6 +168,7 @@ function WeaponHitbox({
     <RigidBody ref={body} type="kinematicPosition" colliders={false} position={[0, -100, 0]} name={name}>
       <CapsuleCollider
         args={[0.49, 0.085]}
+        rotation={[Math.PI / 2, 0, 0]}
         sensor
         activeCollisionTypes={rapier.ActiveCollisionTypes.ALL}
         onIntersectionEnter={({ other }) => updateOverlap(true, other.rigidBodyObject?.name)}

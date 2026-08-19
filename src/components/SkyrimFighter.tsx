@@ -9,40 +9,18 @@ import {
   CHARACTER_SCALE,
   LOCOMOTION_STATES,
   RIG_SOCKETS,
+  WEAPON_GLB,
   clipConfig,
 } from "../game/anim/animationManifest";
 import { CHARACTER_MODEL_OFFSET } from "../game/physics/characterPhysics";
 import type { AnimationState } from "../game/core/types";
 
 const GLB_URL = `${import.meta.env.BASE_URL}${CHARACTER_GLB}`;
+const WEAPON_URL = `${import.meta.env.BASE_URL}${WEAPON_GLB}`;
 
-// The procedural stand-in sword. It attaches to the rig's native `WeaponSword`
-// socket, so swapping in an extracted Skyrim sword mesh later is a drop-in:
-// build the mesh, parent it to the same socket, keep the same hitbox semantics.
-const SWORD_MOUNT_ROTATION = new THREE.Euler(Math.PI / 2, 0, 0); // blade down the hand
-const SWORD_MOUNT_POSITION = new THREE.Vector3(0, 0, 0);
-
-function makeSword(): THREE.Group {
-  const sword = new THREE.Group();
-  sword.name = "WeatheredStraightSword";
-  const steel = new THREE.MeshStandardMaterial({ color: 0xd9dde0, roughness: 0.32, metalness: 0.82, emissive: 0x272a2c, emissiveIntensity: 0.3 });
-  const leather = new THREE.MeshStandardMaterial({ color: 0x241711, roughness: 0.86 });
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.83, 0.018), steel);
-  blade.position.y = 0.53;
-  blade.castShadow = true;
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.044, 0.16, 4), steel);
-  tip.position.y = 1.02;
-  tip.rotation.y = Math.PI / 4;
-  tip.castShadow = true;
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.05), steel);
-  guard.position.y = 0.08;
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.28, 8), leather);
-  grip.position.y = -0.08;
-  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), steel);
-  pommel.position.y = -0.24;
-  sword.add(blade, tip, guard, grip, pommel);
-  return sword;
-}
+// The extracted Skyrim steel sword is authored relative to the rig's native
+// `Weapon` hand socket, so it attaches at identity (grip at the origin, blade
+// along +Z). Swapping to a different weapon is a pipeline rebuild + new GLB.
 
 /**
  * Skyrim-derived character actor. Loads the pipeline-built GLB whose actions are
@@ -70,9 +48,19 @@ export function SkyrimFighter({
   modelOffsetY?: number;
 }) {
   const gltf = useGLTF(GLB_URL);
+  const weaponGltf = useGLTF(WEAPON_URL);
   const model = useMemo(() => clone(gltf.scene), [gltf.scene]);
   const root = useRef<THREE.Group>(null);
-  const sword = useMemo(makeSword, []);
+  const sword = useMemo(() => {
+    const weapon = clone(weaponGltf.scene);
+    weapon.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.castShadow = true;
+        object.receiveShadow = true;
+      }
+    });
+    return weapon;
+  }, [weaponGltf.scene]);
   const weaponMount = useMemo(() => new THREE.Group(), []);
 
   const previousAction = useRef<THREE.AnimationAction | null>(null);
@@ -99,25 +87,26 @@ export function SkyrimFighter({
     });
   }, [enemy, model]);
 
-  // Mount the sword on the native WeaponSword socket, counter-scaling for the
-  // rig's baked scale so the blade renders at real-world size.
+  // Mount the sword on the native Weapon (hand) socket, counter-scaling for the
+  // rig's baked scale so the weapon frame is real-world metres. weaponRef points
+  // at the mount: its local +Z is the blade, grip at the origin (hitbox space).
   useLayoutEffect(() => {
     const socket =
       model.getObjectByName(RIG_SOCKETS.weapon) ??
-      model.getObjectByName(RIG_SOCKETS.weaponFallback) ??
-      model.getObjectByName(RIG_SOCKETS.rightHand);
+      model.getObjectByName(RIG_SOCKETS.weaponFallback);
     if (!socket) return;
     model.updateWorldMatrix(true, true);
     const worldScale = socket.getWorldScale(new THREE.Vector3()).x || 1;
     weaponMount.scale.setScalar(1 / worldScale);
-    weaponMount.position.copy(SWORD_MOUNT_POSITION);
-    weaponMount.quaternion.setFromEuler(SWORD_MOUNT_ROTATION);
+    weaponMount.position.set(0, 0, 0);
+    weaponMount.quaternion.identity();
     sword.position.set(0, 0, 0);
+    sword.quaternion.identity();
     weaponMount.add(sword);
     socket.add(weaponMount);
-    if (weaponRef) weaponRef.current = sword;
+    if (weaponRef) weaponRef.current = weaponMount;
     return () => {
-      if (weaponRef?.current === sword) weaponRef.current = null;
+      if (weaponRef?.current === weaponMount) weaponRef.current = null;
       socket.remove(weaponMount);
       weaponMount.remove(sword);
     };
@@ -178,3 +167,4 @@ export function SkyrimFighter({
 }
 
 useGLTF.preload(GLB_URL);
+useGLTF.preload(WEAPON_URL);

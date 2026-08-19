@@ -9,3 +9,4 @@ vite.config.d.ts
 public/AnimationLibrary.glb
 # Bethesda-derived character asset (built locally by elder-scrolls-asset-pipeline; never commit)
 public/character-dunmer-combat.glb
+public/weapon-steel-sword.glb
