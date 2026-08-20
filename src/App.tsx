@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CombatScene } from "./components/CombatScene";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
 import { Hud } from "./components/Hud";
@@ -10,10 +10,16 @@ export function App() {
   const started = useGameStore((state) => state.started);
   const patch = useGameStore((state) => state.patch);
   const [quality] = useState(() => window.matchMedia("(pointer: coarse)").matches ? 1.35 : 1.75);
+  const canvasEl = useRef<HTMLCanvasElement | null>(null);
+
+  const requestMouseLook = () => {
+    if (document.pointerLockElement !== canvasEl.current) canvasEl.current?.requestPointerLock?.();
+  };
 
   const begin = () => {
     combatAudio.unlock();
     enterFullscreen();
+    requestMouseLook();
     patch({ started: true, message: "THE HOLLOW WARDEN" });
   };
 
@@ -27,7 +33,9 @@ export function App() {
         onCreated={({ gl }) => {
           gl.outputColorSpace = "srgb";
           gl.shadowMap.type = 2;
+          canvasEl.current = gl.domElement;
         }}
+        onPointerDown={() => started && requestMouseLook()}
       >
         <CombatScene />
       </Canvas>

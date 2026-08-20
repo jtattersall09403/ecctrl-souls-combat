@@ -28,6 +28,7 @@ character, animation and movement architecture.
 | [architecture/movement-boundary.md](architecture/movement-boundary.md) | Controller-independent movement boundary |
 | [architecture/animation-contract.md](architecture/animation-contract.md) | Manifest-driven semantic animations |
 | [assets/rebuilding-the-character.md](assets/rebuilding-the-character.md) | Rebuild the character GLB from Skyrim source |
+| [assets/animation-source-audit.md](assets/animation-source-audit.md) | Selected Skyrim clips, external-source provenance, and audition results |
 
 ## Non-negotiables
 

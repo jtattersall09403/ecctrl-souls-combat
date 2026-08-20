@@ -9,6 +9,7 @@ const base: EnemyAiContext = {
   playerAction: "idle",
   playerPhase: "none",
   playerRecovering: false,
+  personality: 0.5,
 };
 
 describe("enemy utility AI", () => {
@@ -23,5 +24,17 @@ describe("enemy utility AI", () => {
   it("removes stamina-expensive choices when exhausted", () => {
     const scores = scoreEnemyIntents({ ...base, stamina: 5, playerAction: "light1", playerPhase: "windup" });
     expect(scores.filter(({ intent }) => ["lightCombo", "heavy", "parry", "dodge", "backstep"].includes(intent)).every(({ score }) => score === 0)).toBe(true);
+  });
+
+  it("gives different personalities different scores in an identical situation", () => {
+    const a = scoreEnemyIntents({ ...base, personality: 0.12 });
+    const b = scoreEnemyIntents({ ...base, personality: 0.87 });
+    expect(a).not.toEqual(b);
+  });
+
+  it("is deterministic for a given personality", () => {
+    const a = scoreEnemyIntents({ ...base, personality: 0.33 });
+    const b = scoreEnemyIntents({ ...base, personality: 0.33 });
+    expect(a).toEqual(b);
   });
 });

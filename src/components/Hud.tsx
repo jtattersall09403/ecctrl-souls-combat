@@ -200,7 +200,7 @@ export function Hud() {
               <dt>Guard / parry</dt><dd>Mouse 2 / F</dd>
               <dt>Dodge / sprint</dt><dd>Space tap / hold</dd>
               <dt>Jump</dt><dd>J</dd>
-              <dt>Lock / heal / equip</dt><dd>Q / H / E</dd>
+              <dt>Lock / heal / equip</dt><dd>Q / H / Tab</dd>
               <dt>Switch target</dt><dd>, / .</dd>
             </dl>
             <dl>

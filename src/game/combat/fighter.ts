@@ -63,6 +63,12 @@ export type Fighter = {
 
   criticalType: "riposte" | "backstab" | null;
   criticalVictimYaw: number;
+
+  // Stable per-instance bias so identically-positioned enemies (e.g. the two
+  // mirrored side spawns) don't score every intent identically and act like
+  // clones. Persists across resetFighter; only real per-encounter randomness
+  // (decisionTimer spread below) resets.
+  personality: number;
 };
 
 export function createFighter(id: string, team: Team): Fighter {
@@ -87,11 +93,12 @@ export function createFighter(id: string, team: Team): Fighter {
     yaw: 0,
     attackDirection: { x: 0, y: 0, z: 1 },
     dodgeDirection: { x: 0, y: 0, z: -1 },
-    decisionTimer: 0.7,
+    decisionTimer: 0.4 + Math.random() * 0.6,
     strafeSide: 1,
     staggerDuration: 0.58,
     criticalType: null,
     criticalVictimYaw: 0,
+    personality: Math.random(),
   };
 }
 
@@ -112,7 +119,7 @@ export function resetFighter(fighter: Fighter) {
   fighter.yaw = 0;
   fighter.attackDirection = { x: 0, y: 0, z: 1 };
   fighter.dodgeDirection = { x: 0, y: 0, z: -1 };
-  fighter.decisionTimer = 0.7;
+  fighter.decisionTimer = 0.4 + Math.random() * 0.6;
   fighter.strafeSide = 1;
   fighter.staggerDuration = 0.58;
   fighter.criticalType = null;

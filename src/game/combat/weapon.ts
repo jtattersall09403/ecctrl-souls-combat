@@ -1,43 +1,38 @@
 import type { AnimationState, CombatAction, WeaponDefinition } from "../core/types";
+import { clipConfig } from "../anim/animationManifest";
 
 export const LIGHT_ATTACK_BASE_DAMAGE = 24;
 export const CRITICAL_DAMAGE_MULTIPLIER = 2;
 export const CRITICAL_ATTACK_DAMAGE = LIGHT_ATTACK_BASE_DAMAGE * CRITICAL_DAMAGE_MULTIPLIER;
 
 export type ComboInput = "light" | "heavy";
-export const LIGHT_COMBO_CLIP = "Sword_Attack";
 
-// The source animation contains three complementary cuts. These ranges split
-// it at stable contact poses so queued attacks continue from the preceding
-// blade pose instead of restarting the clip.
-export const LIGHT_COMBO_PLAYBACK = {
-  LIGHT_1: { sourceOffset: 0, windupEnd: 10 / 30, activeEnd: 17 / 30, recoveryEnd: 23 / 30, windup: 0.18, active: 0.34, recovery: 0.2 },
-  // Frames 17-23 connect from the first cut, then 23-29 perform the
-  // low-to-high backslash. Holding frame 29 during recovery prevents the
-  // following downward cut from appearing while its hitbox is inactive.
-  LIGHT_2: { sourceOffset: 17 / 30, windupEnd: 23 / 30, activeEnd: 29 / 30, recoveryEnd: 29 / 30, windup: 0.08, active: 0.3, recovery: 0.18 },
-  // The finisher inherits frame 29, takes one frame to load, commits through
-  // the larger downward cut, then uses the authored settle through frame 46.
-  LIGHT_3: { sourceOffset: 29 / 30, windupEnd: 30 / 30, activeEnd: 38 / 30, recoveryEnd: 46 / 30, windup: 0.07, active: 0.42, recovery: 0.34 },
-} as const;
+// A brief anticipation and follow-through bookend the swing; the hitbox is
+// active for everything in between, matching the clip's actual authored
+// length (previously tuned in frame units for a since-replaced placeholder
+// clip, leaving the hitbox active for only ~half the real swing).
+const LIGHT_WINDUP_FRACTION = 0.15;
+const LIGHT_RECOVERY_FRACTION = 0.15;
 
-export function sampleLightClipTime(
-  animation: keyof typeof LIGHT_COMBO_PLAYBACK,
-  elapsed: number,
-) {
-  const playback = LIGHT_COMBO_PLAYBACK[animation];
-  const interpolate = (from: number, to: number, amount: number) => from + (to - from) * Math.min(1, Math.max(0, amount));
-  if (elapsed <= playback.windup) {
-    return interpolate(playback.sourceOffset, playback.windupEnd, elapsed / playback.windup);
-  }
-  if (elapsed <= playback.windup + playback.active) {
-    return interpolate(playback.windupEnd, playback.activeEnd, (elapsed - playback.windup) / playback.active);
-  }
-  return interpolate(
-    playback.activeEnd,
-    playback.recoveryEnd,
-    (elapsed - playback.windup - playback.active) / playback.recovery,
-  );
+function lightAttackTiming(animation: Extract<AnimationState, "LIGHT_1" | "LIGHT_2" | "LIGHT_3">) {
+  const duration = clipConfig(animation).sourceDuration ?? 0.72 / (1 - LIGHT_WINDUP_FRACTION - LIGHT_RECOVERY_FRACTION);
+  const windup = duration * LIGHT_WINDUP_FRACTION;
+  const recovery = duration * LIGHT_RECOVERY_FRACTION;
+  return { windup, active: duration - windup - recovery, recovery };
+}
+
+const RIPOSTE_DURATION = clipConfig("RIPOSTE").sourceDuration ?? 4.1;
+const RIPOSTE_CONTACT_TIME = 1.9333;
+const RIPOSTE_RELEASE_TIME = 3.3667;
+const BACKSTAB_DURATION = clipConfig("BACKSTAB").sourceDuration ?? 3.1667;
+const BACKSTAB_CONTACT_TIME = 1.5;
+const BACKSTAB_RELEASE_TIME = 2.2;
+
+function criticalAttackTiming(duration: number, contactTime: number) {
+  // Keep damage tightly around the visually audited blade contact, while the
+  // complete authored critical continues through withdrawal and recovery.
+  const active = 0.28;
+  return { windup: contactTime, active, recovery: duration - contactTime - active };
 }
 
 // Timings are data, not branches in the controller. A new weapon can supply a
@@ -45,15 +40,68 @@ export function sampleLightClipTime(
 export const STRAIGHT_SWORD: WeaponDefinition = {
   id: "straight-sword",
   label: "Weathered Straight Sword",
+  visual: {
+    asset: "weapon-steel-sword.glb",
+    held: {
+      socket: "Weapon",
+      localPosition: [0, 0, 0],
+      localRotation: [0.408263, -0.550300, -0.472324, 0.554439],
+      localScale: 1,
+    },
+    sheathed: {
+      socket: "WeaponSword",
+      localPosition: [0, 0, 0],
+      localRotation: [-0.487106, -0.441521, 0, 0.753516],
+      localScale: 1,
+    },
+  },
+  animations: {
+    combatIdle: "SWORD_IDLE",
+    sprintOverride: "SPRINT",
+    guard: {
+      enter: "GUARD_ENTER",
+      loop: "GUARD",
+      hitVariants: ["GUARD_HIT_A", "GUARD_HIT_B"],
+    },
+    parry: {
+      intro: "PARRY",
+      followThrough: "PARRY_FOLLOW_THROUGH",
+    },
+    lightAttacks: ["LIGHT_1", "LIGHT_2", "LIGHT_3"],
+    heavyAttacks: ["HEAVY", "HEAVY_2"],
+    guardBreak: "GUARD_BREAK",
+    riposte: {
+      attackerAction: "RIPOSTE",
+      victimAction: "RIPOSTED",
+      startingSeparation: 1.45,
+      relativeFacing: Math.PI,
+      alignmentAnchor: "victim",
+      damageProgress: RIPOSTE_CONTACT_TIME / RIPOSTE_DURATION,
+      releaseProgress: RIPOSTE_RELEASE_TIME / RIPOSTE_DURATION,
+      rootMotionPolicy: "controller-aligned-strip-horizontal",
+    },
+    backstab: {
+      attackerAction: "BACKSTAB",
+      victimAction: "BACKSTABBED",
+      // paired HKX group offset: 56.062 Skyrim units * 0.1 import scale
+      // * 0.1496 runtime character scale = 0.8387 metres.
+      startingSeparation: 0.839,
+      relativeFacing: 0,
+      alignmentAnchor: "victim",
+      damageProgress: BACKSTAB_CONTACT_TIME / BACKSTAB_DURATION,
+      releaseProgress: BACKSTAB_RELEASE_TIME / BACKSTAB_DURATION,
+      rootMotionPolicy: "controller-aligned-strip-horizontal",
+    },
+    equip: "EQUIP",
+    unequip: "UNEQUIP",
+  },
   attacks: {
     light1: {
       id: "light1",
       animation: "LIGHT_1",
       damage: LIGHT_ATTACK_BASE_DAMAGE,
       stamina: 22,
-      windup: LIGHT_COMBO_PLAYBACK.LIGHT_1.windup,
-      active: LIGHT_COMBO_PLAYBACK.LIGHT_1.active,
-      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_1.recovery,
+      ...lightAttackTiming("LIGHT_1"),
       range: 2.05,
       arc: 1.4,
       lunge: 1.45,
@@ -64,9 +112,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "LIGHT_2",
       damage: 29,
       stamina: 24,
-      windup: LIGHT_COMBO_PLAYBACK.LIGHT_2.windup,
-      active: LIGHT_COMBO_PLAYBACK.LIGHT_2.active,
-      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_2.recovery,
+      ...lightAttackTiming("LIGHT_2"),
       range: 2.15,
       arc: 1.28,
       lunge: 1.6,
@@ -77,9 +123,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "LIGHT_3",
       damage: 34,
       stamina: 26,
-      windup: LIGHT_COMBO_PLAYBACK.LIGHT_3.windup,
-      active: LIGHT_COMBO_PLAYBACK.LIGHT_3.active,
-      recovery: LIGHT_COMBO_PLAYBACK.LIGHT_3.recovery,
+      ...lightAttackTiming("LIGHT_3"),
       range: 2.2,
       arc: 0.82,
       lunge: 1.85,
@@ -119,9 +163,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "RIPOSTE",
       damage: CRITICAL_ATTACK_DAMAGE,
       stamina: 0,
-      windup: 0.22,
-      active: 0.38,
-      recovery: 0.46,
+      ...criticalAttackTiming(RIPOSTE_DURATION, RIPOSTE_CONTACT_TIME),
       range: 1.65,
       arc: 0.55,
       lunge: 1.1,
@@ -132,9 +174,7 @@ export const STRAIGHT_SWORD: WeaponDefinition = {
       animation: "BACKSTAB",
       damage: CRITICAL_ATTACK_DAMAGE,
       stamina: 0,
-      windup: 0.38,
-      active: 0.45,
-      recovery: 0.53,
+      ...criticalAttackTiming(BACKSTAB_DURATION, BACKSTAB_CONTACT_TIME),
       range: 1.75,
       arc: 0.45,
       lunge: 0,
@@ -199,6 +239,7 @@ export const COMBAT_TUNING = {
   rollCost: 32,
   backstepCost: 26,
   parryCost: 18,
+  jumpCost: 15,
   guardStability: 0.58,
   guardDamageReduction: 0.92,
   rollDuration: 0.72,

@@ -10,11 +10,18 @@ export type EnemyAiContext = {
   playerAction: CombatAction;
   playerPhase: CombatPhase;
   playerRecovering: boolean;
+  /** Stable per-enemy trait in [0, 1); see Fighter.personality. */
+  personality: number;
 };
 
 export type EnemyIntentScore = { intent: EnemyIntent; score: number };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+/** Deterministic per-(enemy, intent) bias so identical situations don't score identically for every enemy. */
+function personalityBias(personality: number, index: number) {
+  return (Math.sin(personality * 133.7 + index * 12.9898) * 0.5) * 0.16;
+}
 
 export function scoreEnemyIntents(context: EnemyAiContext): EnemyIntentScore[] {
   const incoming = context.playerPhase === "windup" || context.playerPhase === "active";
@@ -24,17 +31,20 @@ export function scoreEnemyIntents(context: EnemyAiContext): EnemyIntentScore[] {
   const hurt = clamp01((0.48 - context.healthRatio) / 0.36);
   const safeToHeal = context.distance > 3.3 || context.playerRecovering;
 
-  return [
-    { intent: "approach", score: 0.22 + far * 0.72 },
-    { intent: "strafe", score: context.distance > 1.6 && context.distance < 3.8 ? 0.34 : 0.08 },
-    { intent: "lightCombo", score: context.stamina >= 66 ? 0.3 + close * 0.35 + (context.playerRecovering ? 0.22 : 0) : 0 },
-    { intent: "heavy", score: context.stamina >= 45 ? 0.2 + close * 0.24 + (context.playerRecovering ? 0.38 : 0) : 0 },
-    { intent: "guard", score: incoming && context.distance < 2.5 && context.stamina >= 14 ? 0.48 + (heavyIncoming ? -0.12 : 0.1) : 0 },
-    { intent: "parry", score: incoming && !heavyIncoming && context.distance < 2.25 && context.stamina >= 18 ? 0.64 : 0 },
-    { intent: "dodge", score: incoming && context.distance < 2.8 && context.stamina >= 30 ? (heavyIncoming ? 0.92 : 0.7) : 0 },
-    { intent: "backstep", score: incoming && context.distance < 1.35 && context.stamina >= 24 ? 0.76 : 0 },
-    { intent: "heal", score: context.estus > 0 && hurt > 0 && safeToHeal ? 0.42 + hurt * 0.48 : 0 },
+  const scores = [
+    { intent: "approach" as const, score: 0.22 + far * 0.72 },
+    { intent: "strafe" as const, score: context.distance > 1.6 && context.distance < 3.8 ? 0.34 : 0.08 },
+    { intent: "lightCombo" as const, score: context.stamina >= 66 ? 0.3 + close * 0.35 + (context.playerRecovering ? 0.22 : 0) : 0 },
+    { intent: "heavy" as const, score: context.stamina >= 45 ? 0.2 + close * 0.24 + (context.playerRecovering ? 0.38 : 0) : 0 },
+    { intent: "guard" as const, score: incoming && context.distance < 2.5 && context.stamina >= 14 ? 0.48 + (heavyIncoming ? -0.12 : 0.1) : 0 },
+    { intent: "parry" as const, score: incoming && !heavyIncoming && context.distance < 2.25 && context.stamina >= 18 ? 0.64 : 0 },
+    { intent: "dodge" as const, score: incoming && context.distance < 2.8 && context.stamina >= 30 ? (heavyIncoming ? 0.92 : 0.7) : 0 },
+    { intent: "backstep" as const, score: incoming && context.distance < 1.35 && context.stamina >= 24 ? 0.76 : 0 },
+    { intent: "heal" as const, score: context.estus > 0 && hurt > 0 && safeToHeal ? 0.42 + hurt * 0.48 : 0 },
   ];
+  return scores.map((entry, index) => (
+    entry.score > 0 ? { ...entry, score: entry.score + personalityBias(context.personality, index) } : entry
+  ));
 }
 
 export function selectEnemyIntent(context: EnemyAiContext, random = Math.random()): EnemyIntent {

@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { clipConfig } from "../anim/animationManifest";
 import {
   COMBAT_TUNING,
   CRITICAL_ATTACK_DAMAGE,
   CRITICAL_DAMAGE_MULTIPLIER,
-  LIGHT_COMBO_CLIP,
-  LIGHT_COMBO_PLAYBACK,
   STRAIGHT_SWORD,
   comboEntryTime,
   comboQueueOpen,
@@ -17,7 +16,6 @@ import {
   isRollInvulnerable,
   isWeaponHitboxActive,
   phaseAt,
-  sampleLightClipTime,
 } from "./weapon";
 
 describe("straight sword moveset", () => {
@@ -92,58 +90,17 @@ describe("straight sword moveset", () => {
     }
   });
 
-  it("maps each light phase to a complete authored source segment", () => {
-    const attacks = STRAIGHT_SWORD.attacks;
-    for (const [animation, attack] of [
-      ["LIGHT_1", attacks.light1],
-      ["LIGHT_2", attacks.light2],
-      ["LIGHT_3", attacks.light3],
-    ] as const) {
-      const source = LIGHT_COMBO_PLAYBACK[animation];
-      expect(sampleLightClipTime(animation, 0)).toBeCloseTo(source.sourceOffset);
-      expect(sampleLightClipTime(animation, attack.windup)).toBeCloseTo(source.windupEnd);
-      expect(sampleLightClipTime(animation, attack.windup + attack.active)).toBeCloseTo(source.activeEnd);
-      expect(sampleLightClipTime(animation, attack.windup + attack.active + attack.recovery)).toBeCloseTo(source.recoveryEnd);
-      expect(sampleLightClipTime(animation, -1)).toBeCloseTo(source.sourceOffset);
-      expect(sampleLightClipTime(animation, 10)).toBeCloseTo(source.recoveryEnd);
+  it("gives the light chain a brief windup/recovery and an active window spanning the rest of the clip", () => {
+    for (const attack of [
+      STRAIGHT_SWORD.attacks.light1,
+      STRAIGHT_SWORD.attacks.light2,
+      STRAIGHT_SWORD.attacks.light3,
+    ]) {
+      const total = attack.windup + attack.active + attack.recovery;
+      expect(attack.active / total).toBeGreaterThan(0.65);
+      expect(attack.windup).toBeLessThan(attack.active);
+      expect(attack.recovery).toBeLessThan(attack.active);
     }
-  });
-
-  it("joins all three cuts at their exact authored source poses", () => {
-    expect(LIGHT_COMBO_CLIP).toBe("Sword_Attack");
-    expect(LIGHT_COMBO_PLAYBACK.LIGHT_1.activeEnd).toBe(LIGHT_COMBO_PLAYBACK.LIGHT_2.sourceOffset);
-    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.activeEnd).toBe(LIGHT_COMBO_PLAYBACK.LIGHT_3.sourceOffset);
-    expect(sampleLightClipTime("LIGHT_2", comboTransitionTime(STRAIGHT_SWORD.attacks.light2))).toBe(
-      sampleLightClipTime("LIGHT_3", comboEntryTime(STRAIGHT_SWORD.attacks.light3)),
-    );
-  });
-
-  it("holds the second cut at its apex instead of traversing the third cut during recovery", () => {
-    const attack = STRAIGHT_SWORD.attacks.light2;
-    const recoveryStart = comboTransitionTime(attack);
-    const recoveryMiddle = recoveryStart + attack.recovery / 2;
-    const recoveryEnd = recoveryStart + attack.recovery;
-    const apex = 29 / 30;
-
-    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.activeEnd).toBe(apex);
-    expect(LIGHT_COMBO_PLAYBACK.LIGHT_2.recoveryEnd).toBe(apex);
-    expect(sampleLightClipTime("LIGHT_2", recoveryStart)).toBe(apex);
-    expect(sampleLightClipTime("LIGHT_2", recoveryMiddle)).toBe(apex);
-    expect(sampleLightClipTime("LIGHT_2", recoveryEnd)).toBe(apex);
-    expect(sampleLightClipTime("LIGHT_2", recoveryEnd)).toBeLessThan(30 / 30);
-  });
-
-  it("loads, swings, and settles the finisher across its dedicated source frames", () => {
-    const attack = STRAIGHT_SWORD.attacks.light3;
-    expect(LIGHT_COMBO_PLAYBACK.LIGHT_3).toMatchObject({
-      sourceOffset: 29 / 30,
-      windupEnd: 30 / 30,
-      activeEnd: 38 / 30,
-      recoveryEnd: 46 / 30,
-    });
-    expect(sampleLightClipTime("LIGHT_3", attack.windup)).toBe(30 / 30);
-    expect(sampleLightClipTime("LIGHT_3", comboTransitionTime(attack))).toBe(38 / 30);
-    expect(sampleLightClipTime("LIGHT_3", attack.windup + attack.active + attack.recovery)).toBe(46 / 30);
   });
 
   it("accepts queue input only during the current swing and carries frame overshoot", () => {
@@ -175,6 +132,17 @@ describe("straight sword moveset", () => {
     expect(CRITICAL_ATTACK_DAMAGE).toBe(light1.damage * CRITICAL_DAMAGE_MULTIPLIER);
     expect(backstab.damage).toBe(light1.damage * 2);
     expect(riposte.damage).toBe(light1.damage * 2);
+  });
+
+  it("synchronizes critical profiles to their authored clips and victim sides", () => {
+    const { riposte, backstab } = STRAIGHT_SWORD.attacks;
+    expect(STRAIGHT_SWORD.animations.riposte.victimAction).toBe("RIPOSTED");
+    expect(STRAIGHT_SWORD.animations.backstab.victimAction).toBe("BACKSTABBED");
+    expect(riposte.windup + riposte.active + riposte.recovery)
+      .toBeCloseTo(clipConfig("RIPOSTE").sourceDuration ?? 0, 4);
+    expect(backstab.windup + backstab.active + backstab.recovery)
+      .toBeCloseTo(clipConfig("BACKSTAB").sourceDuration ?? 0, 4);
+    expect(STRAIGHT_SWORD.animations.backstab.startingSeparation).toBeCloseTo(0.839, 3);
   });
 
   it("maps both heavy attacks to Hit_Head's dedicated reaction state", () => {

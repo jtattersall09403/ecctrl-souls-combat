@@ -1,6 +1,6 @@
 {
   "character": "dunmer-combat",
-  "source": "Skyrim vanilla (regenerated from source; not redistributed)",
+  "source": "Skyrim vanilla + permitted mod HKX (regenerated locally; not redistributed)",
   "rig": {
     "rootBone": "NPC Root [Root]",
     "sockets": {
@@ -18,25 +18,17 @@
       "looping": true,
       "rootMotion": "strip",
       "playbackRate": 1.0,
-      "sourceDuration": 9.0,
-      "rootMotionDelta": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "provenance": "vanilla 1hm_idle (sword-drawn idle)"
+      "sourceDuration": 9.1333,
+      "rootMotionDelta": null,
+      "provenance": "vanilla mt_idle_a_base (neutral unarmed standing idle, not a combat stance)"
     },
     "SWORD_IDLE": {
       "looping": true,
       "rootMotion": "strip",
       "playbackRate": 1.0,
       "sourceDuration": 9.0,
-      "rootMotionDelta": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "provenance": "vanilla 1hm_idle; separate action so IDLE/SWORD_IDLE swap independently"
+      "rootMotionDelta": null,
+      "provenance": "vanilla 1hm_idle (sword-drawn idle); separate action so IDLE/SWORD_IDLE swap independently"
     },
     "WALK": {
       "looping": true,
@@ -101,14 +93,14 @@
     "SPRINT": {
       "looping": true,
       "rootMotion": "strip",
-      "playbackRate": 1.35,
-      "sourceDuration": 0.6333,
+      "playbackRate": 1.0,
+      "sourceDuration": 0.6,
       "rootMotionDelta": [
         0.0,
-        0.0,
+        1e-05,
         -0.0
       ],
-      "provenance": "vanilla run, faster; separate action, replaceable with a true sprint"
+      "provenance": "vanilla mt_sprintforwardsword (dedicated sword sprint)"
     },
     "JUMP_START": {
       "looping": false,
@@ -144,7 +136,31 @@
         0.0,
         0.0
       ],
-      "provenance": "vanilla landing"
+      "provenance": "vanilla stationary landing"
+    },
+    "JUMP_LAND_LEFT": {
+      "looping": false,
+      "rootMotion": "strip",
+      "playbackRate": 1.0,
+      "sourceDuration": 1.0333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "vanilla directional landing, left-foot transition"
+    },
+    "JUMP_LAND_RIGHT": {
+      "looping": false,
+      "rootMotion": "strip",
+      "playbackRate": 1.0,
+      "sourceDuration": 1.0333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "vanilla directional landing, right-foot transition"
     },
     "LIGHT_1": {
       "looping": false,
@@ -216,33 +232,77 @@
         0.0,
         0.0
       ],
-      "provenance": "vanilla Silent Roll; deliberately replaceable with a mod clip later"
+      "provenance": "Dynamic Dodge Animation 1.5, DMCO 0.9.6 base one-handed MCO_DodgeForward2 (full forward tuck roll)"
     },
     "BACKSTEP": {
       "looping": false,
       "rootMotion": "consume",
       "playbackRate": 1.0,
-      "sourceDuration": 1.5667,
+      "sourceDuration": 0.9333,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla small back stagger used as a quick backstep; replaceable"
+      "provenance": "Dynamic Dodge Animation 1.5, DMCO 0.9.6 base one-handed MCO_DodgeBackward1 (short grounded backstep)"
+    },
+    "GUARD_ENTER": {
+      "looping": false,
+      "rootMotion": "strip",
+      "playbackRate": 1.0,
+      "sourceDuration": 0.8333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "vanilla one-handed sword block anticipate/guard entry"
     },
     "GUARD": {
       "looping": true,
       "rootMotion": "strip",
       "playbackRate": 1.0,
       "sourceDuration": 3.7667,
+      "rootMotionDelta": null,
+      "provenance": "vanilla one-handed sword block idle"
+    },
+    "GUARD_HIT_A": {
+      "looping": false,
+      "rootMotion": "strip",
+      "playbackRate": 1.0,
+      "sourceDuration": 0.8333,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla block idle (real guard)"
+      "provenance": "vanilla one-handed sword block-hit variant A"
+    },
+    "GUARD_HIT_B": {
+      "looping": false,
+      "rootMotion": "strip",
+      "playbackRate": 1.0,
+      "sourceDuration": 0.8333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "vanilla one-handed sword block-hit variant B"
     },
     "PARRY": {
+      "looping": false,
+      "rootMotion": "consume",
+      "playbackRate": 1.0,
+      "sourceDuration": 0.8333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "vanilla one-handed sword block-bash intro/parry catch"
+    },
+    "PARRY_FOLLOW_THROUGH": {
       "looping": false,
       "rootMotion": "consume",
       "playbackRate": 1.0,
@@ -252,43 +312,55 @@
         0.0,
         0.0
       ],
-      "provenance": "vanilla shield/weapon bash (parry)"
+      "provenance": "vanilla one-handed sword block-bash follow-through"
     },
     "RIPOSTE": {
       "looping": false,
       "rootMotion": "consume",
       "playbackRate": 1.0,
-      "sourceDuration": 1.5,
+      "sourceDuration": 4.1,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla forward power attack (riposte follow-up)"
+      "provenance": "Rim Parry and Execution 1.1, one-handed sword execution attacker (2130000018)/1.hkx"
+    },
+    "RIPOSTED": {
+      "looping": false,
+      "rootMotion": "consume",
+      "playbackRate": 1.0,
+      "sourceDuration": 5.3333,
+      "rootMotionDelta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "provenance": "Rim Parry and Execution 1.1, ExeStaggerOther one-handed/no-shield victim (6112012)/modernstaggerlock/1.HKX"
     },
     "BACKSTAB": {
       "looping": false,
       "rootMotion": "consume",
       "playbackRate": 1.0,
-      "sourceDuration": 1.0667,
+      "sourceDuration": 3.1667,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla sneak attack (backstab)"
+      "provenance": "Backstab animation for sneak killmove SE 1, paired_1hmsneakkillbacka unprefixed actor tracks"
     },
     "BACKSTABBED": {
       "looping": false,
-      "rootMotion": "strip",
+      "rootMotion": "consume",
       "playbackRate": 1.0,
-      "sourceDuration": 3.0,
+      "sourceDuration": 3.1667,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla largest forward stagger (backstab victim reaction)"
+      "provenance": "Backstab animation for sneak killmove SE 1, paired_1hmsneakkillbacka 2_-prefixed actor tracks"
     },
     "HEAL": {
       "looping": false,
@@ -306,7 +378,7 @@
       "looping": false,
       "rootMotion": "strip",
       "playbackRate": 1.0,
-      "sourceDuration": 2.8667,
+      "sourceDuration": 1.4333,
       "rootMotionDelta": [
         0.0,
         0.0,
@@ -366,13 +438,13 @@
       "looping": false,
       "rootMotion": "strip",
       "playbackRate": 1.0,
-      "sourceDuration": 3.1333,
+      "sourceDuration": 3.0,
       "rootMotionDelta": [
         0.0,
         0.0,
         0.0
       ],
-      "provenance": "vanilla largest back stagger (guard broken)"
+      "provenance": "NPC Parry Style Stagger animations (OAR) 1.0, separate largest stagger (2399) one-handed sword/1hm_staggerbacklargest.hkx"
     },
     "GET_UP": {
       "looping": false,

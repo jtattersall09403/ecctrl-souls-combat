@@ -28,6 +28,7 @@ type RigManifest = {
     leftHand: string;
     weapon: string;
     weaponFallback: string;
+    sheath: string;
   };
   recommendedScale: number;
   targetHeightMeters: number;
@@ -37,10 +38,6 @@ const RIG = manifest.rig as unknown as RigManifest;
 const ANIMATIONS = manifest.animations as unknown as Record<string, ClipConfig>;
 
 export const CHARACTER_GLB = "character-dunmer-combat.glb";
-
-// Static Skyrim weapon GLB (steel sword), built by the asset pipeline. Attaches
-// to the rig's native `Weapon` hand socket at identity.
-export const WEAPON_GLB = "weapon-steel-sword.glb";
 
 export const RIG_ROOT_BONE = RIG.rootBone;
 export const RIG_SOCKETS = RIG.sockets;
@@ -59,7 +56,15 @@ export function clipConfig(state: AnimationState): ClipConfig {
   return ANIMATIONS[state] ?? FALLBACK;
 }
 
-/** Semantic states that represent free locomotion (mixer-driven, self-timed). */
+/**
+ * Semantic states that represent free locomotion (mixer-driven, self-timed).
+ * JUMP_START/JUMP_LAND are included even though they are one-shot combat-like
+ * clips: they play while the player's `CombatAction` stays "idle" (jumping is
+ * not a combat action), so the shared action clock keeps free-running instead
+ * of resetting at takeoff/landing. Driving them externally from that stale
+ * clock clamps them to their last frame from the very first rendered frame.
+ * Self-timing avoids the stale clock entirely.
+ */
 export const LOCOMOTION_STATES: ReadonlySet<AnimationState> = new Set<AnimationState>([
   "IDLE",
   "SWORD_IDLE",
@@ -71,6 +76,10 @@ export const LOCOMOTION_STATES: ReadonlySet<AnimationState> = new Set<AnimationS
   "SPRINT",
   "GUARD",
   "JUMP_IDLE",
+  "JUMP_START",
+  "JUMP_LAND",
+  "JUMP_LAND_LEFT",
+  "JUMP_LAND_RIGHT",
 ]);
 
 /** Every semantic state the built GLB is expected to contain. */

@@ -19,16 +19,21 @@ export function executionAnchor(
   enemy: { x: number; z: number },
   enemyForward: { x: number; z: number },
   type: "backstab" | "riposte",
+  separation = EXECUTION_ANCHOR_DISTANCE,
 ) {
   const side = type === "backstab" ? -1 : 1;
   return {
-    x: enemy.x + enemyForward.x * EXECUTION_ANCHOR_DISTANCE * side,
-    z: enemy.z + enemyForward.z * EXECUTION_ANCHOR_DISTANCE * side,
+    x: enemy.x + enemyForward.x * separation * side,
+    z: enemy.z + enemyForward.z * separation * side,
   };
 }
 
-export function executionFacingYaw(enemyYaw: number, type: "backstab" | "riposte") {
-  return enemyYaw + (type === "backstab" ? 0 : Math.PI);
+export function executionFacingYaw(
+  enemyYaw: number,
+  type: "backstab" | "riposte",
+  relativeFacing = type === "backstab" ? 0 : Math.PI,
+) {
+  return enemyYaw + relativeFacing;
 }
 
 export function executionWeaponPath(progress: number): { grip: MotionPoint; tip: MotionPoint } {

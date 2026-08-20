@@ -31,6 +31,10 @@ export const SWITCH_GAMEPAD = {
 
 const DEAD_ZONE = 0.16;
 
+// Matches the touch camera-drag zone's feel (see Hud.tsx's CameraZone): both
+// paths funnel into the same addTouchCamera accumulator.
+const MOUSE_LOOK_SENSITIVITY = 0.18;
+
 function deadZone(value: number) {
   const sign = Math.sign(value);
   const magnitude = Math.abs(value);
@@ -56,11 +60,17 @@ export class InputController {
     this.attached = true;
     const down = (event: KeyboardEvent) => {
       this.keys.add(event.code);
-      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) event.preventDefault();
+      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(event.code)) event.preventDefault();
     };
     const up = (event: KeyboardEvent) => this.keys.delete(event.code);
     const mouseDown = (event: MouseEvent) => this.mouse.add(event.button);
     const mouseUp = (event: MouseEvent) => this.mouse.delete(event.button);
+    // Mouse-look only while the pointer is locked (click the canvas to engage),
+    // so moving the mouse to reach UI/menus doesn't spin the camera.
+    const mouseMove = (event: MouseEvent) => {
+      if (!document.pointerLockElement) return;
+      this.addTouchCamera({ x: event.movementX * MOUSE_LOOK_SENSITIVITY, y: event.movementY * MOUSE_LOOK_SENSITIVITY });
+    };
     const blur = () => {
       this.keys.clear();
       this.mouse.clear();
@@ -70,6 +80,7 @@ export class InputController {
     window.addEventListener("keyup", up);
     window.addEventListener("mousedown", mouseDown);
     window.addEventListener("mouseup", mouseUp);
+    window.addEventListener("mousemove", mouseMove);
     window.addEventListener("blur", blur);
     return () => {
       this.attached = false;
@@ -77,6 +88,7 @@ export class InputController {
       window.removeEventListener("keyup", up);
       window.removeEventListener("mousedown", mouseDown);
       window.removeEventListener("mouseup", mouseUp);
+      window.removeEventListener("mousemove", mouseMove);
       window.removeEventListener("blur", blur);
     };
   }
@@ -132,7 +144,7 @@ export class InputController {
     this.current.set("dodge", active("dodge") || this.keys.has("Space") || button(SWITCH_GAMEPAD.B_BOTTOM_DODGE));
     this.current.set("lockOn", active("lockOn") || this.keys.has("KeyQ") || button(SWITCH_GAMEPAD.R_STICK_LOCK));
     this.current.set("heal", active("heal") || this.keys.has("KeyH") || button(SWITCH_GAMEPAD.X_TOP_ITEM));
-    this.current.set("equip", active("equip") || this.keys.has("KeyE") || button(SWITCH_GAMEPAD.DPAD_RIGHT_EQUIP));
+    this.current.set("equip", active("equip") || this.keys.has("Tab") || button(SWITCH_GAMEPAD.DPAD_RIGHT_EQUIP));
     this.current.set("jump", active("jump") || this.keys.has("KeyJ") || button(SWITCH_GAMEPAD.A_RIGHT_JUMP) || button(SWITCH_GAMEPAD.L_STICK_JUMP));
     // When locked on, the right stick is free for target switching; the frame
     // ignores camera input in that mode. `pressed` turns a stick push into one edge.

@@ -1,4 +1,5 @@
 import type { CombatAction } from "../core/types";
+import { clipConfig } from "../anim/animationManifest";
 import { BLOCK_RECOIL_DURATION } from "./blockReaction";
 import { COMBAT_TUNING } from "./weapon";
 
@@ -8,14 +9,18 @@ export const PLAYER_ESTUS = 3;
 export const ENEMY_ESTUS = 1;
 
 // Fixed durations for the actions whose length is not encoded in a weapon
-// definition. Attack lengths come from the weapon moveset instead.
+// definition. Attack lengths come from the weapon moveset instead. EQUIP and
+// UNEQUIP must match their clip's actual source duration (playback rate 1) —
+// a shorter fixed value here cuts the draw/sheathe animation off partway
+// through.
 export const ACTION_DURATIONS: Partial<Record<CombatAction, number>> = {
   roll: COMBAT_TUNING.rollDuration,
   backstep: 0.52,
-  parry: 0.66,
+  parry: (clipConfig("PARRY").sourceDuration ?? 0.66)
+    + (clipConfig("PARRY_FOLLOW_THROUGH").sourceDuration ?? 0.27),
   heal: COMBAT_TUNING.healDuration,
-  equip: 0.62,
-  unequip: 0.62,
+  equip: clipConfig("EQUIP").sourceDuration ?? 0.62,
+  unequip: clipConfig("UNEQUIP").sourceDuration ?? 0.62,
   hit: 0.62,
   hitHeavy: 0.62,
   recoil: BLOCK_RECOIL_DURATION,
@@ -26,7 +31,8 @@ export const ACTION_DURATIONS: Partial<Record<CombatAction, number>> = {
 export const ENEMY_STATE_DURATIONS = {
   strafe: 0.62,
   guard: 0.82,
-  parry: 0.66,
+  parry: (clipConfig("PARRY").sourceDuration ?? 0.66)
+    + (clipConfig("PARRY_FOLLOW_THROUGH").sourceDuration ?? 0.27),
   recover: 0.72,
   recoil: BLOCK_RECOIL_DURATION,
   parried: 1.75,
@@ -35,7 +41,9 @@ export const ENEMY_STATE_DURATIONS = {
 } as const;
 
 export const CRITICAL_FALL_DURATION = 1.55;
-export const CRITICAL_GET_UP_DURATION = 1.72;
+// Matches GET_UP's actual clip length (see the equip/unequip comment above) —
+// a shorter fixed value pops the victim onto their feet mid-rise.
+export const CRITICAL_GET_UP_DURATION = clipConfig("GET_UP").sourceDuration ?? 1.72;
 
 // Initial dodge/backstep launch speeds. The controllers decay these over the
 // action's duration.
