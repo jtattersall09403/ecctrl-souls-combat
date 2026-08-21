@@ -24,17 +24,25 @@ character, animation and movement architecture.
 
 | File | Topic |
 | --- | --- |
+| [animation-quality-playbook.md](animation-quality-playbook.md) | Start here before implementing or debugging animation quality |
 | [architecture/character-actor.md](architecture/character-actor.md) | The Skyrim character actor + GLB |
 | [architecture/movement-boundary.md](architecture/movement-boundary.md) | Controller-independent movement boundary |
 | [architecture/animation-contract.md](architecture/animation-contract.md) | Manifest-driven semantic animations |
+| [architecture/movement-speed-tuning.md](architecture/movement-speed-tuning.md) | Where to edit travel speed vs animation playback speed for locomotion/dodges |
 | [assets/rebuilding-the-character.md](assets/rebuilding-the-character.md) | Rebuild the character GLB from Skyrim source |
 | [assets/animation-source-audit.md](assets/animation-source-audit.md) | Selected Skyrim clips, external-source provenance, and audition results |
+| [validation/production-visual-scenarios.md](validation/production-visual-scenarios.md) | Repeatable browser scenes that exercise production input/combat/rendering |
 
 ## Non-negotiables
 
-- **Repo is public.** Never commit Bethesda-derived assets (GLB/NIF/HKX/DDS).
-  They are gitignored and built locally.
+- The project owner has authorized the built runtime character and weapon GLBs
+  in `public/` for this personal GitHub Pages deployment. Original archives,
+  NIF/HKX/DDS extraction trees, pipeline outputs, and validation evidence remain
+  local and gitignored. This is not blanket permission to add other source assets.
 - The game references **semantic** animation names only (`IDLE`, `ROLL`,
   `LIGHT_1`, …) — never Bethesda filenames.
+- Animation work starts with
+  [animation-quality-playbook.md](animation-quality-playbook.md); do not repeat
+  the source-selection/timing/grounding/paired-action trial-and-error it records.
 - Combat/animation/input/lock-on code depends on `PlayerMovementController`,
   not on ecctrl directly.

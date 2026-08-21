@@ -1,0 +1,5 @@
+{
+  "JUMP_LAND_LEFT": "Audition-only source clip: its authored quarter-turn conflicts with controller-owned facing, so production landing selection never returns it.",
+  "JUMP_LAND_RIGHT": "Audition-only source clip: its authored quarter-turn conflicts with controller-owned facing, so production landing selection never returns it.",
+  "CRITICAL_KNOCKDOWN": "Legacy audition semantic retained in the current generated asset; its unrelated stand-up/arms-up opening is explicitly rejected for production critical choreography."
+}

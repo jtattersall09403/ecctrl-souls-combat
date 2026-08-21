@@ -8,6 +8,13 @@ export const ENEMY_MAX_HEALTH = 150;
 export const PLAYER_ESTUS = 3;
 export const ENEMY_ESTUS = 1;
 
+function clipPlaybackDuration(state: Parameters<typeof clipConfig>[0], fallback: number) {
+  const config = clipConfig(state);
+  return config.sourceDuration && config.playbackRate > 0
+    ? config.sourceDuration / config.playbackRate
+    : fallback;
+}
+
 // Fixed durations for the actions whose length is not encoded in a weapon
 // definition. Attack lengths come from the weapon moveset instead. EQUIP and
 // UNEQUIP must match their clip's actual source duration (playback rate 1) —
@@ -16,43 +23,35 @@ export const ENEMY_ESTUS = 1;
 export const ACTION_DURATIONS: Partial<Record<CombatAction, number>> = {
   roll: COMBAT_TUNING.rollDuration,
   backstep: 0.52,
-  parry: (clipConfig("PARRY").sourceDuration ?? 0.66)
-    + (clipConfig("PARRY_FOLLOW_THROUGH").sourceDuration ?? 0.27),
+  parry: COMBAT_TUNING.parryDuration,
   heal: COMBAT_TUNING.healDuration,
   equip: clipConfig("EQUIP").sourceDuration ?? 0.62,
   unequip: clipConfig("UNEQUIP").sourceDuration ?? 0.62,
   hit: 0.62,
   hitHeavy: 0.62,
   recoil: BLOCK_RECOIL_DURATION,
-  guardBreak: 1.05,
+  guardBreak: clipPlaybackDuration("GUARD_BREAK", 1.75),
 };
 
 // Timeouts for the enemy state machine's non-attack states.
 export const ENEMY_STATE_DURATIONS = {
   strafe: 0.62,
   guard: 0.82,
-  parry: (clipConfig("PARRY").sourceDuration ?? 0.66)
-    + (clipConfig("PARRY_FOLLOW_THROUGH").sourceDuration ?? 0.27),
+  parry: COMBAT_TUNING.parryDuration,
   recover: 0.72,
   recoil: BLOCK_RECOIL_DURATION,
-  parried: 1.75,
+  parried: clipPlaybackDuration("GUARD_BREAK", 1.75),
   staggerLight: 0.62,
   staggerDefault: 0.58,
 } as const;
 
-export const CRITICAL_FALL_DURATION = 1.55;
-// Matches GET_UP's actual clip length (see the equip/unequip comment above) —
-// a shorter fixed value pops the victim onto their feet mid-rise.
-export const CRITICAL_GET_UP_DURATION = clipConfig("GET_UP").sourceDuration ?? 1.72;
-
 // Initial dodge/backstep launch speeds. The controllers decay these over the
 // action's duration.
 export const DODGE_SPEED = {
-  playerRoll: 7.2,
+  playerRoll: 10.0,
   playerBackstep: 4.2,
   enemyRoll: 6.7,
   enemyBackstep: 4.1,
-  backstepLift: 2.15,
 } as const;
 
 export const ENEMY_LOCOMOTION = {

@@ -24,8 +24,7 @@ export type EnemyMode =
   | "recoil"
   | "parried"
   | "critical"
-  | "criticalFall"
-  | "criticalGetUp"
+  | "criticalRecovery"
   | "dead";
 
 export type FighterState = CombatAction | EnemyMode;

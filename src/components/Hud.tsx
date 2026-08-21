@@ -3,6 +3,7 @@ import { input, type InputAction } from "../game/io/input";
 import { useGameStore } from "../game/core/store";
 import { MAX_ENEMIES } from "../game/combat/tuning";
 import { FullscreenButton } from "./FullscreenButton";
+import type { VisualScenario } from "../game/validation/visualScenarios";
 
 function Bar({ value, max, className, label }: { value: number; max: number; className: string; label: string }) {
   return (
@@ -97,7 +98,7 @@ function CameraZone() {
   );
 }
 
-export function Hud() {
+export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario | null }) {
   const state = useGameStore();
   const [help, setHelp] = useState(false);
   const [touch, setTouch] = useState(false);
@@ -113,6 +114,11 @@ export function Hud() {
   const won = state.enemyHealth <= 0;
   return (
     <div className="hud">
+      {visualScenario && (
+        <div className="visual-scenario-label" data-testid="visual-scenario-label">
+          VISUAL TEST · {visualScenario.label}
+        </div>
+      )}
       <section className="player-vitals" aria-label="Player status">
         <div className="vital-row"><span className="level-orb">08</span><Bar value={state.playerHealth} max={100} className="health" label="Health" /></div>
         <Bar value={state.playerStamina} max={100} className="stamina" label="Stamina" />
@@ -128,7 +134,11 @@ export function Hud() {
       </section>
 
       {state.damagePulse > 0 && <div key={state.damagePulse} className="damage-vignette" aria-hidden="true" />}
-      {state.message && <div className={`combat-message ${(dead || won) ? "major" : ""}`}>{state.message}</div>}
+      {state.message && (
+        <div className={`combat-message ${dead ? "major" : won ? "victory" : ""}`}>
+          {state.message}
+        </div>
+      )}
 
       <section className="quick-slots" aria-label="Equipment">
         <div className="slot sword-icon"><i /></div>
@@ -140,8 +150,8 @@ export function Hud() {
         {state.gamepad ? "CONTROLLER CONNECTED" : "KEYBOARD · TOUCH · GAMEPAD"}
       </div>
 
-      <button className="help-button" onClick={() => setHelp((value) => !value)} aria-expanded={help}>?</button>
-      <details className="debug-panel">
+      {!visualScenario && <button className="help-button" onClick={() => setHelp((value) => !value)} aria-expanded={help}>?</button>}
+      {!visualScenario && <details className="debug-panel">
         <summary>DEBUG</summary>
         <label>
           <input
@@ -187,7 +197,7 @@ export function Hud() {
         </label>
         <FullscreenButton />
         <button onClick={state.reset}>RESET &amp; RESTART</button>
-      </details>
+      </details>}
       {!touch && state.started && <CameraZone />}
       {help && (
         <aside className="help-panel">

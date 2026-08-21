@@ -18,8 +18,9 @@ const HARD_IMPACT_SPEED = 6.5;
  * Resolve the touchdown clip without taking horizontal authority from the
  * movement controller. Vanilla's left/right clips were auditioned but contain
  * authored quarter-turns, so they are unsafe while controller facing remains
- * authoritative. Moving landings instead compress the neutral clip into a
- * very short touchdown before locomotion resumes.
+ * authoritative. Gameplay movement remains live during this visual recovery,
+ * so the authored touchdown must retain enough time to read without imposing
+ * a separate control lock.
  */
 export function selectLandingAnimation({
   velocity,
@@ -33,7 +34,7 @@ export function selectLandingAnimation({
   if (planarSpeed < MOVING_SPEED) {
     return {
       animation: "JUMP_LAND",
-      duration: hard ? 0.34 : 0.42,
+      duration: hard ? 0.46 : 0.58,
       kind: hard ? "hard" : "stationary",
       impactSpeed,
       planarSpeed,
@@ -43,7 +44,7 @@ export function selectLandingAnimation({
   const kind: LandingKind = hard ? "hard" : planarSpeed >= SPRINT_SPEED ? "sprint" : "moving";
   return {
     animation: "JUMP_LAND",
-    duration: hard ? 0.24 : kind === "sprint" ? 0.16 : 0.2,
+    duration: hard ? 0.46 : kind === "sprint" ? 0.36 : 0.42,
     kind,
     impactSpeed,
     planarSpeed,

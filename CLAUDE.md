@@ -26,18 +26,26 @@ is built here; this is only the combat/character proving ground.
 - **Game played from github pages.** The game will be built from github actions and played in the browser at github pages. So the code must work for that context. e.g. make sure animation files that are needed in the game are included.
 - **Semantic animations only.** Game code references states (`IDLE`, `ROLL`,
   `LIGHT_1`, …), never Bethesda filenames. Reskinning a clip is a pipeline rebuild.
+- **Read the animation playbook first.** Before adding, replacing, retiming, or
+  debugging animation output, follow
+  [docs/animation-quality-playbook.md](docs/animation-quality-playbook.md). It
+  records the fast pipeline-first workflow and the source/timing/ownership/
+  grounding/transition failure modes already solved here.
 - **Controller-independent.** Combat/input/lock-on/animation depend on
   `PlayerMovementController`, not ecctrl directly (ecctrl is behind `EcctrlAdapter`). This is so we can easily change the controller later if we need to
 - **Don't casually retune gameplay** (damage, stamina, i-frames, hit/parry windows,
   speeds) unless asked to. Fix visual/animation timing on the animation side instead.
-- **Validate visually.** If you're working on something that will change a visual in the game (e.g. character appearance, animations, object orientations, etc etc) then you must validate visually before handing off to the user. If you're working on something with a motion/temporal element (e.g. animations) then you must inspect anmated output - construct gifs or videos to inspect visually to test whether what you've done has achieved what you intended in the game context. If it didn't, think about why and make changes/fixes. Hand back to the user when either (a) you're happy with the visual output, or (b) there is some blocker that you need the user to unblock.
+- **Visual changes require owner review.** For work that changes appearance or motion, generate the production-path videos/GIFs and frame evidence, but do **not** spend agent tokens visually ingesting them unless the project owner explicitly asks. Automated probes may reject a result but cannot grant qualitative approval. Hand the project owner the exact absolute paths to the generated `review.html` dashboard and `holistic-review.md` form, name the scenarios/actions to inspect, and describe the concrete defects or acceptance questions to look for. The owner is the visual authority.
+- **Keep animation validation green.** After anything that could affect animation selection, timing, attachment, physics, or rendering, run `npm run visual:test` and fix all automated/probe failures. Then stop for project-owner visual review. The owner watches every normal-speed recording/GIF, action close-up, dense run strip, and transition strip and records timestamped observations, rationales, checklist marks, and verdicts in the generated `holistic-review.md`. Agents must not fill or invent those judgments; they may only transcribe results the owner explicitly supplies. Once the owner has completed an unequivocal `PASS`, run `npm run visual:review:check` and `npm run visual:review:attest`, then commit `visual-review-attestation.json`. CI and deploy reject inputs that differ from that human-reviewed fingerprint. Details: [docs/validation/production-visual-scenarios.md](docs/validation/production-visual-scenarios.md).
 - **Research known solutions.** We aren't working on something particularly unique or unusual. For any task, decide if it would be worth researching online to find if there are already known-good or proven solutions, or whether the thing you're doing is simple enough that you can just get straight to it. If it would be worth researching, first check the filenames in docs/ and it's sub-folders to see if any other agent has done the research already. If yes, read it, then think about whether further research is necessary or if you now have what you need. If you do need to do further online research, do it, and record key findings in docs/ . Use and create sub-directories as appropriate, and remember that future agents will go off filenames when deciding whether to read a doc you've written.
 
 ## Assets
 
 Game assets are built from owned Skyrim data by the
 sibling repo `../elder-scrolls-asset-pipeline` and copied into `public/`
-(gitignored). To rebuild/replace, see
+(the runtime character and weapon GLBs are intentionally versioned so a clean
+GitHub Pages checkout works). Source archives, extracted assets, pipeline
+outputs, and validation recordings stay gitignored. To rebuild/replace, see
 [docs/assets/rebuilding-the-character.md](docs/assets/rebuilding-the-character.md).
 
 ## Commands
@@ -47,6 +55,10 @@ npm run dev         # playtest
 npm run typecheck   # tsc -b
 npm test            # vitest
 npm run build       # tsc -b && vite build
+npm run visual:test # all production animation scenes + review bundle
+npm run visual:review:check # validate the owner's completed review form
+npm run visual:review:attest # bind that reviewed run to current source inputs
+npm run visual:review:attestation:check # reject stale/missing attestation
 ```
 
 ## Map

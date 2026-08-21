@@ -7,7 +7,7 @@ root-motion stripping — that is resolved in the asset pipeline).
 
 ## What it does
 
-- Loads `public/character-dunmer-combat.glb` (gitignored; see
+- Loads the versioned deployment asset `public/character-dunmer-combat.glb` (see
   [../assets/rebuilding-the-character.md](../assets/rebuilding-the-character.md)).
 - Its GLB actions are already named with **semantic** game states, so playback is
   `actions[state]` with no name mapping.
@@ -18,27 +18,53 @@ root-motion stripping — that is resolved in the asset pipeline).
 - Reads per-clip `looping` / `playbackRate` from the animation manifest, plus an
   optional `speedMultiplierRef` the caller can nudge every frame on top of that
   (used for lock-on strafe/walk speed matching).
+- Clones materials per fighter as well as cloning the skeleton. `SkeletonUtils`
+  shares materials by default; independent instances prevent the enemy tint
+  from recolouring the player.
+- Exposes the animated upper-spine object through `targetAnchorRef`; the lock-on
+  reticle follows this render pose rather than the upright physics origin and
+  therefore moves with knockdowns/get-up.
 
 ## Scale + ground contact
 
 The GLB carries the rig's internal 0.1 scale; the actor scales the whole clone by
 `CHARACTER_SCALE` (≈0.15, from the manifest) to reach ~1.85 m.
 
-`CHARACTER_MODEL_OFFSET` (from the capsule's physical dimensions) is only a
-**base** offset. It assumes the model's own local origin sits at foot height,
-which does not hold exactly for this rig, and no single fixed offset holds across
-every clip anyway (a landing crouch or a stagger dips lower than a resting idle).
-Instead, every frame the actor samples the world Y of the rig's foot/toe bones
-(`SOLE_BONE_NAMES` — GLTFLoader's *sanitized* form of names like
-`NPC Foot [ft ].L`, i.e. `NPC_Foot_ft_L`; three.js strips spaces/brackets/dots
-from `Object3D.name` on load) and nudges the whole model up/down so the lowest
-one always sits exactly on the physics ground plane, smoothed over ~50 ms so
-nothing pops on a cross-fade. This replaced a dead, Rigify-era foot-contact
-calibration (`src/game/anim/footContact.ts`'s `CALIBRATED_SOLE_MARKERS` /
-`JUMP_SOLE_CALIBRATION`) that referenced bones this rig doesn't have and was
-never actually wired into the renderer after the migration; that module is now
-unused and should be removed as part of any follow-up port to the new sole
-tracking.
+`CHARACTER_MODEL_OFFSET` (from the capsule dimensions) is the authored base
+offset. The asset pipeline samples every final skinned body mesh at 30 Hz and
+bakes a visible-surface envelope plus four identity-preserving foot/toe support
+points in their bone-local 3D frames. Gameplay interpolates that metadata in
+constant work; it never computes full skinned-mesh bounds per frame.
+
+Support behavior is semantic. Ordinary `penetration` clips may move upward to
+prevent a visible surface crossing the arena, but authored lifted feet never
+pull the actor down. `airborne` phases release correction, apart from a bounded
+upward-only impact guard once the physics base is within 2 cm of support.
+`floor-contact` phases may move in either direction to hold a collapse, prone
+body, or landing exactly on its declared plane. During a material ground-bound
+crossfade, the actor transforms the incoming and outgoing clips' distinct
+heel/toe candidates through the actual blended bones and uses the lower point;
+interpolating the candidates themselves is invalid because the lowest shoe
+vertex can change identity between clips.
+
+The Ecctrl rigid body keeps pitch and roll locked (`enabledRotations` allows yaw
+only) and disables auto-balance. A Souls humanoid's renderer/controller boundary
+is upright; allowing the capsule to tilt rotated an otherwise correct late-jump
+surface several centimetres through the floor. Production validation gates the
+world-up direction for both actors at 1° and separately samples exact final
+deformed-mesh bounds against the real support plane.
+
+## Navigation body versus combat hurtbox
+
+Ecctrl's capsule is a navigation and suspension shape, not the actor's combat
+silhouette. Its compact rounded top is deliberately good at stairs, but ends
+below the rendered shoulders; using it for damage made a sword visibly cross an
+upper torso while Rapier reported a miss. Each actor therefore owns a separate
+sensor-only, full-height `CombatHurtbox`, derived from the manifest's
+`targetHeightMeters` and centred on the controller. Weapon sensors test this
+uniquely named volume, while movement, grounding, blocking, and parrying keep
+their existing dedicated bodies. Do not enlarge the Ecctrl capsule to tune
+weapon reach: that silently changes navigation and jump behavior.
 
 ## Weapon
 
@@ -58,11 +84,13 @@ assumed. If a future weapon or socket needs the same treatment, re-derive its
 correction the same way — don't assume identity.
 
 Animated Blender validation covered `SWORD_IDLE`, `WALK`, `SPRINT`, `GUARD`,
-`PARRY`, `LIGHT_1`, `HEAVY`, and `ROLL`; the hilt remains seated in the closed
-fist throughout. The sword also switches which socket it rides:
+`PARRY`, `LIGHT_1`, `HEAVY`, and `ROLL`; production-path browser validation is
+the required final gate. The sword also switches which socket it rides:
 
 - Equipped combat states → the hand socket, blade forward.
 - Unequipped idle → the hip sheath socket, stowed instead of hidden.
+- `HEAL` → temporarily the hip socket because the Skyrim potion motion uses the
+  sword hand; leaving the blade held visibly drives it through the actor's head.
 - `EQUIP`/`UNEQUIP` switch socket **partway through the clip** (`EQUIP_GRAB_PROGRESS`
   / `UNEQUIP_STOW_PROGRESS`), roughly matching when the animated hand reaches the
   hip, instead of snapping the sword to its final socket at the state boundary.
@@ -70,3 +98,10 @@ fist throughout. The sword also switches which socket it rides:
 The combat hitbox reads the sword's world transform (`weaponRef`), so it is
 independent of the visual mesh and unaffected by which socket the sword is
 currently riding (only equipped combat states ever arm the hitbox).
+
+Rapier steps before the animated kinematic sword sensor is repositioned for
+the rendered frame, so a newly visible overlap is observable by combat on the
+following simulation step. Attack data must keep its active phase through that
+callback frame. The production `hit-reactions` scenario guards this boundary;
+`HEAVY` previously disarmed at 0.90 s just before its visible 0.90–0.93 s
+contact could be consumed.

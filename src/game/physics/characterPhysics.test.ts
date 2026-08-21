@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { CHARACTER_TARGET_HEIGHT } from "../anim/animationManifest";
 import {
   BASE_JUMP_VELOCITY,
   CHARACTER_BODY_CENTER_HEIGHT,
   CHARACTER_CAPSULE_HALF_HEIGHT,
   CHARACTER_CAPSULE_RADIUS,
+  CHARACTER_COMBAT_HURTBOX_RADIUS,
   CHARACTER_DAMPING_C,
   CHARACTER_FLOAT_HEIGHT,
   CHARACTER_MODEL_OFFSET,
@@ -13,13 +15,12 @@ import {
   FALLING_GRAVITY_SCALE,
   JUMP_IMPULSE_DURATION,
   JUMP_LAND_DURATION,
-  JUMP_LAND_PLAYBACK_RATE,
-  JUMP_LAND_SOURCE_DURATION,
+  JUMP_LAUNCH_ANIMATION_DURATION,
   JUMP_GRAVITY_SCALE,
   JUMP_START_DURATION,
-  JUMP_START_PLAYBACK_RATE,
-  JUMP_START_SOURCE_DURATION,
   JUMP_VELOCITY,
+  combatHurtboxCenterOffset,
+  combatHurtboxHalfHeight,
   jumpApexHeight,
   jumpApexTime,
 } from "./characterPhysics";
@@ -27,6 +28,15 @@ import {
 describe("shared character grounding and jump arc", () => {
   it("places the model reference plane on support at suspension equilibrium", () => {
     expect(CHARACTER_BODY_CENTER_HEIGHT + CHARACTER_MODEL_OFFSET).toBeCloseTo(0, 8);
+  });
+
+  it("covers the full rendered actor with a combat volume independent of navigation", () => {
+    const targetHeight = CHARACTER_TARGET_HEIGHT;
+    const halfHeight = combatHurtboxHalfHeight(targetHeight);
+    const centerOffset = combatHurtboxCenterOffset(targetHeight);
+    expect(halfHeight * 2 + CHARACTER_COMBAT_HURTBOX_RADIUS * 2).toBeCloseTo(targetHeight, 8);
+    expect(CHARACTER_BODY_CENTER_HEIGHT + centerOffset).toBeCloseTo(targetHeight / 2, 8);
+    expect(CHARACTER_COMBAT_HURTBOX_RADIUS).toBeGreaterThan(CHARACTER_CAPSULE_RADIUS);
   });
 
   it("keeps jump height while reaching the apex sooner", () => {
@@ -56,10 +66,10 @@ describe("shared character grounding and jump arc", () => {
     expect(groundedThresholdBodyY + CHARACTER_MODEL_OFFSET).toBeCloseTo(CHARACTER_RAY_HIT_FORGIVENESS, 8);
   });
 
-  it("finishes takeoff at the apex and samples both authored clips completely", () => {
+  it("keeps physics timing separate from the readable launch pose window", () => {
     expect(JUMP_START_DURATION).toBeCloseTo(jumpApexTime(JUMP_VELOCITY, JUMP_GRAVITY_SCALE), 8);
-    expect(JUMP_START_DURATION * JUMP_START_PLAYBACK_RATE).toBeCloseTo(JUMP_START_SOURCE_DURATION, 8);
-    expect(JUMP_LAND_DURATION * JUMP_LAND_PLAYBACK_RATE).toBeCloseTo(JUMP_LAND_SOURCE_DURATION, 8);
+    expect(JUMP_LAUNCH_ANIMATION_DURATION).toBeGreaterThan(JUMP_START_DURATION);
+    expect(JUMP_LAUNCH_ANIMATION_DURATION).toBeLessThan(0.6);
     expect(JUMP_LAND_DURATION).toBeGreaterThan(0.28);
     expect(JUMP_LAND_DURATION).toBeLessThan(0.5);
     expect(JUMP_IMPULSE_DURATION).toBeCloseTo(1 / 60, 8);

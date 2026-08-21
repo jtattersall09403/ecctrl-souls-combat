@@ -9,6 +9,30 @@ import manifest from "./character-dunmer-combat.animations.json";
  */
 
 export type RootMotionPolicy = "strip" | "consume";
+export type SupportMode = "penetration" | "floor-contact" | "airborne";
+
+export type SupportPhase = {
+  /** Source-clip seconds; phases use the half-open interval [startTime, endTime). */
+  startTime: number;
+  endTime: number;
+  mode: SupportMode;
+};
+
+export type SupportEnvelope = {
+  /** Runtime source time represented by the first baked visible-surface sample. */
+  sampleStartTimeSeconds?: number;
+  sampleIntervalSeconds: number;
+  /** Lowest deformed visible surface, in runtime metres relative to the actor root. */
+  surfaceMinY: number[];
+  /** Lowest foot/toe bone origin, sampled beside surfaceMinY in runtime metres. */
+  soleMarkerMinY?: number[];
+  /** Identity-preserving foot/toe origins sampled beside surfaceMinY. */
+  soleMarkerYById?: Record<string, number[]>;
+  /** Clearance from each marker to nearby visible vertices weighted by it. */
+  soleMarkerClearanceYById?: Record<string, number[]>;
+  /** Lowest nearby visible point in each marker bone's local, unscaled GLB coordinates. */
+  soleMarkerPointBoneLocalById?: Record<string, [number, number, number][]>;
+};
 
 export type ClipConfig = {
   looping: boolean;
@@ -16,6 +40,20 @@ export type ClipConfig = {
   rootMotion: RootMotionPolicy;
   /** Source clip length in seconds, before playbackRate. */
   sourceDuration: number | null;
+  /** Optional source-time in-point used when this semantic action starts. */
+  playbackStartTime: number | null;
+  /** Optional source-time out-point; playback intentionally hands off here. */
+  playbackEndTime: number | null;
+  /** Pose-blend duration when entering this clip. */
+  crossFadeDuration?: number | null;
+  /** Optional pose-blend duration when leaving this clip. */
+  crossFadeOutDuration?: number | null;
+  /** Default relationship between the authored visible surface and its support. */
+  supportMode?: SupportMode;
+  /** Source-time overrides for airborne or deliberately floor-bound phases. */
+  supportPhases?: SupportPhase[];
+  /** Pipeline-baked visible-surface samples; never skinned at gameplay runtime. */
+  supportEnvelope?: SupportEnvelope | null;
   /** Authored net root translation (metres, character space) or null. */
   rootMotionDelta: [number, number, number] | null;
   provenance: string;
@@ -34,26 +72,86 @@ type RigManifest = {
   targetHeightMeters: number;
 };
 
-const RIG = manifest.rig as unknown as RigManifest;
-const ANIMATIONS = manifest.animations as unknown as Record<string, ClipConfig>;
+type CharacterManifest = {
+  assetSha256?: string;
+  rig: RigManifest;
+  supportCalibration?: {
+    /** Near-plane guard for one fixed-step overshoot at physical impact. */
+    airborneImpactProximityMeters?: number;
+    /** Legacy scalar-marker fallback; current manifests use bone-local 3D candidates instead. */
+    crossFadeSoleSafetyMarginMeters?: number;
+  };
+  animations: Record<string, ClipConfig>;
+};
+
+const CHARACTER_MANIFEST = manifest as unknown as CharacterManifest;
+const RIG = CHARACTER_MANIFEST.rig;
+const ANIMATIONS = CHARACTER_MANIFEST.animations;
 
 export const CHARACTER_GLB = "character-dunmer-combat.glb";
+export const CHARACTER_ASSET_REVISION = CHARACTER_MANIFEST.assetSha256?.slice(0, 16) ?? "legacy";
 
 export const RIG_ROOT_BONE = RIG.rootBone;
 export const RIG_SOCKETS = RIG.sockets;
 export const CHARACTER_SCALE = RIG.recommendedScale;
+export const CHARACTER_TARGET_HEIGHT = RIG.targetHeightMeters;
+export const AIRBORNE_IMPACT_PROXIMITY_METERS = Math.max(
+  0,
+  CHARACTER_MANIFEST.supportCalibration?.airborneImpactProximityMeters ?? 0,
+);
+export const CROSS_FADE_SOLE_SAFETY_MARGIN_METERS = Math.max(
+  0,
+  CHARACTER_MANIFEST.supportCalibration?.crossFadeSoleSafetyMarginMeters ?? 0,
+);
 
 const FALLBACK: ClipConfig = {
   looping: false,
   playbackRate: 1,
   rootMotion: "strip",
   sourceDuration: null,
+  playbackStartTime: null,
+  playbackEndTime: null,
+  crossFadeDuration: 0.12,
+  crossFadeOutDuration: null,
+  supportMode: "penetration",
+  supportPhases: [],
+  supportEnvelope: null,
   rootMotionDelta: null,
   provenance: "",
 };
 
 export function clipConfig(state: AnimationState): ClipConfig {
   return ANIMATIONS[state] ?? FALLBACK;
+}
+
+/**
+ * Resolve a transition blend without hard-coding semantic edges in the actor.
+ * An explicit gameplay command wins; otherwise an authored outgoing handoff
+ * can override the incoming clip's ordinary entry blend.
+ */
+export function transitionCrossFadeDuration(
+  incomingState: AnimationState,
+  outgoingState: AnimationState,
+  commandOverride: number | null,
+) {
+  return commandOverride
+    ?? clipConfig(outgoingState).crossFadeOutDuration
+    ?? clipConfig(incomingState).crossFadeDuration
+    ?? 0.12;
+}
+
+/** Source-time span that runtime playback should cover before handing off. */
+export function clipPlaybackSourceSpan(state: AnimationState): number | null {
+  const config = clipConfig(state);
+  const end = config.playbackEndTime ?? config.sourceDuration;
+  return end == null ? null : Math.max(0, end - (config.playbackStartTime ?? 0));
+}
+
+/** Wall-clock seconds needed to show the configured authored source span. */
+export function clipPlaybackDuration(state: AnimationState): number | null {
+  const config = clipConfig(state);
+  const span = clipPlaybackSourceSpan(state);
+  return span == null || config.playbackRate <= 0 ? null : span / config.playbackRate;
 }
 
 /**

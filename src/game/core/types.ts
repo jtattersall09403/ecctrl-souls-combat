@@ -50,7 +50,9 @@ export type AnimationState =
   | "PARRY"
   | "PARRY_FOLLOW_THROUGH"
   | "RIPOSTE"
-  | "RIPOSTED"
+  | "RIPOSTED_HIT1"
+  | "CRITICAL_KNOCKDOWN"
+  | "CRITICAL_DEATH"
   | "BACKSTAB"
   | "BACKSTABBED"
   | "HEAL"
@@ -60,7 +62,6 @@ export type AnimationState =
   | "HIT_HEAVY"
   | "RECOIL"
   | "GUARD_BREAK"
-  | "GET_UP"
   | "DEATH";
 
 export type AttackDefinition = {
@@ -94,6 +95,54 @@ export type WeaponVisualProfile = {
 export type PairedCriticalProfile = {
   attackerAction: AnimationState;
   victimAction: AnimationState;
+  /**
+   * Short production-time blend used both to ease the actors onto their
+   * authored paired anchor and to blend into the opening poses. Instant body
+   * warps are especially visible when a backstab begins near, but not exactly
+   * on, the source pair separation.
+   */
+  entryBlendDuration: number;
+  /**
+   * Attacker-clock progress at which the victim reaction begins. A true paired
+   * clip uses 0; an event-driven execution can hold a vulnerable pose until the
+   * authored impact event and then start its independent reaction clock.
+  */
+  victimActionStartProgress: number;
+  /** Source time at which the selected victim action begins. */
+  victimActionStartAt: number;
+  victimLeadIn?: {
+    action: AnimationState;
+    /** Gameplay-clock seconds at which to freeze the vulnerable lead-in pose. */
+    holdTime: number;
+  };
+  /**
+   * Self-timed victim outcome entered after the profile's authored handoff.
+   * The action owns the complete reaction-to-ready motion; `startAt` is
+   * explicit per critical. If the contact/paired reaction is already playing
+   * this same action, the FSM changes ownership without restarting it.
+   */
+  victimRecovery: {
+    action: AnimationState;
+    /** Gameplay-clock seconds within `action` at the outcome handoff. */
+    startAt: number;
+    /** Transition-specific blend; omitted to use the action manifest default. */
+    crossFadeDuration?: number;
+  };
+  /** Prone-ending variant used when critical damage is lethal. */
+  victimDeath: {
+    action: AnimationState;
+    /** Gameplay-clock seconds within `action` at the outcome handoff. */
+    startAt: number;
+    /** Transition-specific blend; omitted to use the action manifest default. */
+    crossFadeDuration?: number;
+  };
+  /**
+   * Attacker-clock progress at which the victim leaves its paired/reaction
+   * action for the configured recovery or death outcome. This is distinct
+   * from `releaseProgress`: controller alignment can end at blade withdrawal
+   * while the victim finishes the authored paired recoil before falling.
+   */
+  victimOutcomeProgress: number;
   startingSeparation: number;
   /** Victim-relative attacker yaw: 0 behind/same-facing, PI in front/opposed. */
   relativeFacing: number;

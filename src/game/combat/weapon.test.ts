@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { clipConfig } from "../anim/animationManifest";
+import { clipConfig, clipPlaybackDuration } from "../anim/animationManifest";
+import { ACTION_DURATIONS } from "./tuning";
 import {
   COMBAT_TUNING,
   CRITICAL_ATTACK_DAMAGE,
   CRITICAL_DAMAGE_MULTIPLIER,
   STRAIGHT_SWORD,
   comboEntryTime,
+  comboCrossFadeDuration,
   comboQueueOpen,
   comboSuccessorStartTime,
   comboTransitionTime,
+  criticalVictimDeathPlayback,
+  criticalVictimPlaybackAt,
+  criticalVictimRecoveryPlayback,
   getComboSuccessor,
   hitReactionForAttack,
   isBackstabPosition,
@@ -29,9 +34,16 @@ describe("straight sword moveset", () => {
 
   it("moves heavy swing frames into the active window and ends before recovery", () => {
     const { heavy, light1 } = STRAIGHT_SWORD.attacks;
+    const heavyTotal = heavy.windup + heavy.active + heavy.recovery;
     expect(isWeaponHitboxActive(heavy.windup + 0.01, heavy)).toBe(true);
+    // The production-rendered blade reaches the target at source ~0.93s.
+    expect(isWeaponHitboxActive(0.933, heavy)).toBe(true);
+    // Keep one 30Hz physics callback after the first rendered overlap.
+    expect(isWeaponHitboxActive(0.967, heavy)).toBe(true);
+    expect(isWeaponHitboxActive(0.981, heavy)).toBe(false);
     expect(isWeaponHitboxActive(heavy.windup + heavy.active + 0.01, heavy)).toBe(false);
     expect(isWeaponHitboxActive(light1.windup + light1.active + 0.01, light1)).toBe(false);
+    expect(heavyTotal).toBeCloseTo(1.35, 5);
   });
 
   it("has finite roll and parry windows", () => {
@@ -39,6 +51,8 @@ describe("straight sword moveset", () => {
     expect(isRollInvulnerable(COMBAT_TUNING.rollIFrameEnd + 0.01)).toBe(false);
     expect(isParryActive(COMBAT_TUNING.parryActiveStart + 0.01)).toBe(true);
     expect(isParryActive(COMBAT_TUNING.parryActiveEnd + 0.01)).toBe(false);
+    expect(COMBAT_TUNING.parryDuration).toBe(1.1);
+    expect(COMBAT_TUNING.parryDuration).toBeGreaterThan(COMBAT_TUNING.parryActiveEnd);
   });
 
   it("keeps heavier attacks slower, stronger, and more expensive", () => {
@@ -124,6 +138,8 @@ describe("straight sword moveset", () => {
     expect(getComboSuccessor(light1, "heavy")).toBeNull();
     expect(getComboSuccessor(heavy, "light")).toBeNull();
     expect(getComboSuccessor(heavy2, "heavy")).toBeNull();
+    expect(comboCrossFadeDuration(heavy, heavy2)).toBe(0.24);
+    expect(comboCrossFadeDuration(light1, heavy2)).toBeNull();
   });
 
   it("sets backstab and riposte to exactly twice the opening light damage", () => {
@@ -136,13 +152,159 @@ describe("straight sword moveset", () => {
 
   it("synchronizes critical profiles to their authored clips and victim sides", () => {
     const { riposte, backstab } = STRAIGHT_SWORD.attacks;
-    expect(STRAIGHT_SWORD.animations.riposte.victimAction).toBe("RIPOSTED");
+    const riposteConfig = clipConfig("RIPOSTE");
+    const ripostedConfig = clipConfig("RIPOSTED_HIT1");
+
+    expect(STRAIGHT_SWORD.animations.riposte.victimAction).toBe("RIPOSTED_HIT1");
     expect(STRAIGHT_SWORD.animations.backstab.victimAction).toBe("BACKSTABBED");
     expect(riposte.windup + riposte.active + riposte.recovery)
-      .toBeCloseTo(clipConfig("RIPOSTE").sourceDuration ?? 0, 4);
+      .toBeCloseTo(clipPlaybackDuration("RIPOSTE") ?? 0, 4);
     expect(backstab.windup + backstab.active + backstab.recovery)
       .toBeCloseTo(clipConfig("BACKSTAB").sourceDuration ?? 0, 4);
-    expect(STRAIGHT_SWORD.animations.backstab.startingSeparation).toBeCloseTo(0.839, 3);
+    expect(riposteConfig.playbackStartTime).toBeCloseTo(0.1667, 4);
+    expect(riposteConfig.playbackEndTime).toBeCloseTo(1.3, 4);
+    expect(riposteConfig.crossFadeDuration).toBeCloseTo(0.18, 4);
+    expect(riposteConfig.crossFadeOutDuration).toBeCloseTo(0.24, 4);
+    expect(STRAIGHT_SWORD.animations.riposte.startingSeparation).toBeCloseTo(1.45, 3);
+    expect(riposte.windup).toBeCloseTo(0.4, 4);
+    expect(riposte.windup + riposte.active + riposte.recovery)
+      .toBeCloseTo(1.1333, 4);
+    expect(STRAIGHT_SWORD.animations.riposte.damageProgress)
+      .toBeCloseTo(0.4 / 1.1333, 4);
+    expect(STRAIGHT_SWORD.animations.riposte.victimActionStartProgress)
+      .toBeCloseTo(STRAIGHT_SWORD.animations.riposte.damageProgress, 5);
+    expect(STRAIGHT_SWORD.animations.riposte.releaseProgress)
+      .toBeCloseTo(0.5333 / 1.1333, 4);
+    expect(riposteConfig.provenance).toContain("CQC02");
+    expect(riposteConfig.provenance).toContain("source 0.1667–1.3s");
+    expect(STRAIGHT_SWORD.animations.backstab.startingSeparation).toBeCloseTo(0.861, 3);
+    expect(STRAIGHT_SWORD.animations.riposte.victimOutcomeProgress)
+      .toBeCloseTo(STRAIGHT_SWORD.animations.riposte.damageProgress, 5);
+    expect(ripostedConfig.sourceDuration).toBeCloseTo(2, 4);
+    expect(ripostedConfig.playbackStartTime).toBeCloseTo(0.1333, 4);
+    expect(ripostedConfig.playbackEndTime).toBeNull();
+    expect(ripostedConfig.crossFadeDuration).toBeCloseTo(0.08, 4);
+    expect(ripostedConfig.crossFadeOutDuration).toBeCloseTo(0.2, 4);
+    expect(STRAIGHT_SWORD.animations.backstab.victimOutcomeProgress)
+      .toBeGreaterThan(STRAIGHT_SWORD.animations.backstab.releaseProgress);
+    expect(clipConfig("BACKSTAB").provenance).toContain("unprefixed attacker");
+    expect(clipConfig("BACKSTABBED").provenance).toContain("2_-prefixed victim");
+    expect(ripostedConfig.provenance).toContain("(6141037) sword hit1");
+    expect(clipConfig("CRITICAL_KNOCKDOWN").provenance).toContain("(6254014) Knockdown");
+    expect(clipConfig("CRITICAL_DEATH").provenance).toContain("1.9s stable prone pose");
+    expect(clipConfig("CRITICAL_DEATH").playbackEndTime).toBe(1.9);
+  });
+
+  it("holds a riposte victim vulnerable until contact, then starts a fresh reaction clock", () => {
+    const attack = STRAIGHT_SWORD.attacks.riposte;
+    const profile = STRAIGHT_SWORD.animations.riposte;
+    const duration = attack.windup + attack.active + attack.recovery;
+    const reactionStart = duration * profile.victimActionStartProgress;
+
+    expect(reactionStart).toBeCloseTo(0.4, 4);
+
+    expect(criticalVictimPlaybackAt(reactionStart - 0.001, attack, profile)).toEqual({
+      phase: "leadIn",
+      action: "GUARD_BREAK",
+      startAt: 0.55,
+    });
+    expect(criticalVictimPlaybackAt(reactionStart, attack, profile)).toEqual({
+      phase: "reaction",
+      action: "RIPOSTED_HIT1",
+      startAt: 0,
+    });
+    expect(criticalVictimPlaybackAt(reactionStart + 1 / 30, attack, profile)).toEqual({
+      phase: "reaction",
+      action: "RIPOSTED_HIT1",
+      startAt: expect.closeTo(1 / 30, 5),
+    });
+  });
+
+  it("continues each nonlethal critical in its semantically paired victim source", () => {
+    const riposteAttack = STRAIGHT_SWORD.attacks.riposte;
+    const riposteProfile = STRAIGHT_SWORD.animations.riposte;
+    const riposteDuration = riposteAttack.windup + riposteAttack.active + riposteAttack.recovery;
+    const riposteRelease = riposteDuration * riposteProfile.releaseProgress;
+    const riposteAtRelease = criticalVictimPlaybackAt(riposteRelease, riposteAttack, riposteProfile);
+    const riposteRecovery = criticalVictimRecoveryPlayback(riposteProfile);
+    const riposteDeath = criticalVictimDeathPlayback(riposteProfile);
+    expect(riposteDuration * riposteProfile.victimOutcomeProgress).toBeCloseTo(0.4, 4);
+    expect(riposteRelease).toBeCloseTo(0.5333, 4);
+    expect(riposteAtRelease.action).toBe("RIPOSTED_HIT1");
+    expect(riposteAtRelease.startAt).toBeCloseTo(0.1333, 4);
+    expect(riposteRecovery).toEqual({
+      action: "RIPOSTED_HIT1",
+      startAt: 0,
+      crossFadeDuration: undefined,
+      endAt: expect.closeTo(1.8667, 4),
+    });
+    expect(riposteDeath).toEqual({
+      action: "CRITICAL_DEATH",
+      startAt: 0.5667,
+      crossFadeDuration: 0.1,
+      endAt: expect.closeTo(1.9, 4),
+    });
+
+    const backstabAttack = STRAIGHT_SWORD.attacks.backstab;
+    const backstabProfile = STRAIGHT_SWORD.animations.backstab;
+    const backstabDuration = backstabAttack.windup + backstabAttack.active + backstabAttack.recovery;
+    const backstabRelease = backstabDuration * backstabProfile.releaseProgress;
+    const backstabOutcome = backstabDuration * backstabProfile.victimOutcomeProgress;
+    const pairedAtRelease = criticalVictimPlaybackAt(backstabRelease, backstabAttack, backstabProfile);
+    const pairedAtOutcome = criticalVictimPlaybackAt(backstabOutcome, backstabAttack, backstabProfile);
+    const backstabRecovery = criticalVictimRecoveryPlayback(backstabProfile);
+    const backstabDeath = criticalVictimDeathPlayback(backstabProfile);
+    expect(pairedAtRelease).toEqual({
+      phase: "reaction",
+      action: "BACKSTABBED",
+      startAt: expect.closeTo(2.2, 4),
+    });
+    expect(backstabRecovery).toEqual({
+      action: "BACKSTABBED",
+      startAt: 2.9,
+      crossFadeDuration: undefined,
+      endAt: expect.closeTo(3.1667, 4),
+    });
+    expect(backstabDeath).toEqual({
+      action: "CRITICAL_DEATH",
+      startAt: 0,
+      crossFadeDuration: 0.35,
+      endAt: expect.closeTo(1.9, 4),
+    });
+    expect(pairedAtOutcome).toEqual({
+      phase: "reaction",
+      action: "BACKSTABBED",
+      startAt: expect.closeTo(2.9, 4),
+    });
+    // Alignment releases before the attacker's authored follow-through ends,
+    // but only the victim changes action; the attacker keeps its full clock.
+    expect(backstabRelease).toBeLessThan(backstabDuration);
+    expect(backstabOutcome).toBeCloseTo(2.9, 3);
+    expect(backstabOutcome).toBeGreaterThan(backstabRelease);
+    expect(backstabOutcome).toBeLessThan(backstabDuration);
+    expect([riposteRecovery.action, backstabRecovery.action]).not.toContain("DEATH");
+    expect([riposteRecovery.action, backstabRecovery.action]).not.toContain("GET_UP");
+  });
+
+  it("holds lethal criticals at the shared authored prone out-point", () => {
+    for (const profile of [STRAIGHT_SWORD.animations.riposte, STRAIGHT_SWORD.animations.backstab]) {
+      const death = criticalVictimDeathPlayback(profile);
+      expect(death.action).toBe("CRITICAL_DEATH");
+      expect(death.endAt).toBeCloseTo(1.9, 4);
+      expect(death.startAt).toBeLessThan(1.5);
+      expect(death.endAt).toBeGreaterThan(death.startAt);
+      expect(death.action).not.toBe("DEATH");
+    }
+  });
+
+  it("starts both backstab roles together from the approved paired source", () => {
+    const attack = STRAIGHT_SWORD.attacks.backstab;
+    const profile = STRAIGHT_SWORD.animations.backstab;
+    expect(criticalVictimPlaybackAt(0, attack, profile)).toEqual({
+      phase: "reaction",
+      action: "BACKSTABBED",
+      startAt: 0,
+    });
   });
 
   it("maps both heavy attacks to Hit_Head's dedicated reaction state", () => {
@@ -150,6 +312,20 @@ describe("straight sword moveset", () => {
     expect(hitReactionForAttack(light1)).toEqual({ action: "hit", animation: "HIT" });
     expect(hitReactionForAttack(heavy)).toEqual({ action: "hitHeavy", animation: "HIT_HEAVY" });
     expect(hitReactionForAttack(heavy2)).toEqual({ action: "hitHeavy", animation: "HIT_HEAVY" });
+  });
+
+  it("fits short utility and reaction clips to their unchanged gameplay windows", () => {
+    for (const [action, animation] of [
+      ["heal", "HEAL"],
+      ["hit", "HIT"],
+      ["hitHeavy", "HIT_HEAVY"],
+      ["recoil", "RECOIL"],
+    ] as const) {
+      const config = clipConfig(animation);
+      expect(config.sourceDuration).not.toBeNull();
+      expect((config.sourceDuration ?? 0) / config.playbackRate)
+        .toBeCloseTo(ACTION_DURATIONS[action] ?? 0, 3);
+    }
   });
 
   it("recognises a close rear approach and rejects front or distant attacks", () => {

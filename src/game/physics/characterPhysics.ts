@@ -5,6 +5,19 @@ export const CHARACTER_BODY_CENTER_HEIGHT = CHARACTER_CAPSULE_HALF_HEIGHT + CHAR
 export const CHARACTER_MODEL_OFFSET = -CHARACTER_BODY_CENTER_HEIGHT;
 export const CHARACTER_RAY_RADIUS = CHARACTER_CAPSULE_RADIUS / 2;
 
+// Locomotion and combat deliberately use different volumes. Ecctrl's compact
+// capsule is tuned for stairs, suspension, and navigation; weapon contact must
+// cover the full rendered actor, including the upper torso and shoulders.
+export const CHARACTER_COMBAT_HURTBOX_RADIUS = 0.34;
+
+export function combatHurtboxHalfHeight(targetHeight: number) {
+  return Math.max(0, targetHeight / 2 - CHARACTER_COMBAT_HURTBOX_RADIUS);
+}
+
+export function combatHurtboxCenterOffset(targetHeight: number) {
+  return targetHeight / 2 - CHARACTER_BODY_CENTER_HEIGHT;
+}
+
 // Ecctrl's grounded threshold is its suspension target plus this forgiveness.
 // Keep it small so the controller can prepare its spring without reporting a
 // landing while the visible soles are still noticeably above the support.
@@ -23,14 +36,14 @@ export const BASE_JUMP_VELOCITY = 5.2;
 export const JUMP_GRAVITY_SCALE = 3;
 export const JUMP_VELOCITY = BASE_JUMP_VELOCITY * Math.sqrt(JUMP_GRAVITY_SCALE);
 export const FALLING_GRAVITY_SCALE = 4;
-export const JUMP_START_SOURCE_DURATION = 1.3333333730697632;
-// Finish the authored takeoff exactly at the ballistic apex, where its final
-// pose matches the first frame of Jump_Loop.
+// The runtime maps the manifest's authored takeoff out-point onto this window.
+// Keep animation source timing in the generated animation manifest, not here.
 export const JUMP_START_DURATION = JUMP_VELOCITY / (9.81 * JUMP_GRAVITY_SCALE);
-export const JUMP_START_PLAYBACK_RATE = JUMP_START_SOURCE_DURATION / JUMP_START_DURATION;
-export const JUMP_LAND_SOURCE_DURATION = 1.2666666507720947;
+// The authored launch needs longer than the short high-gravity ascent to read
+// as a continuous anticipation and take-off. This is visual-only: it neither
+// delays the impulse nor locks movement/gameplay through the extra tail.
+export const JUMP_LAUNCH_ANIMATION_DURATION = 0.46;
 export const JUMP_LAND_DURATION = 0.42;
-export const JUMP_LAND_PLAYBACK_RATE = JUMP_LAND_SOURCE_DURATION / JUMP_LAND_DURATION;
 
 export function jumpApexHeight(velocity: number, gravityScale: number, gravity = 9.81) {
   return velocity * velocity / (2 * gravity * gravityScale);

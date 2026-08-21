@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SWITCH_GAMEPAD, analogueMoveSpeed, cameraRelativeDirection, resolveAttackDirection } from "./input";
+import { analogueMoveSpeed, cameraRelativeDirection, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, resolveAttackDirection, SWITCH_GAMEPAD } from "./input";
 
 describe("movement translation", () => {
   it("maps stick forward away from a camera behind the player", () => {
@@ -12,10 +12,10 @@ describe("movement translation", () => {
   });
 
   it("scales movement speed with analogue magnitude", () => {
-    expect(analogueMoveSpeed(0.25, false)).toBeCloseTo(0.9);
-    expect(analogueMoveSpeed(0.5, false)).toBeCloseTo(1.8);
-    expect(analogueMoveSpeed(1, false)).toBeCloseTo(3.6);
-    expect(analogueMoveSpeed(1, true)).toBeCloseTo(5.5);
+    expect(analogueMoveSpeed(0.25, false)).toBeCloseTo(PLAYER_WALK_SPEED * 0.25);
+    expect(analogueMoveSpeed(0.5, false)).toBeCloseTo(PLAYER_WALK_SPEED * 0.5);
+    expect(analogueMoveSpeed(1, false)).toBeCloseTo(PLAYER_WALK_SPEED);
+    expect(analogueMoveSpeed(1, true)).toBeCloseTo(PLAYER_SPRINT_SPEED);
   });
 
   it("resolves a queued attack from the current stick instead of the prior roll", () => {
