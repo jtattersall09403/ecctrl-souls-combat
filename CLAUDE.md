@@ -35,8 +35,19 @@ is built here; this is only the combat/character proving ground.
   `PlayerMovementController`, not ecctrl directly (ecctrl is behind `EcctrlAdapter`). This is so we can easily change the controller later if we need to
 - **Don't casually retune gameplay** (damage, stamina, i-frames, hit/parry windows,
   speeds) unless asked to. Fix visual/animation timing on the animation side instead.
-- **Visual changes require owner review.** For work that changes appearance or motion, generate the production-path videos/GIFs and frame evidence, but do **not** spend agent tokens visually ingesting them unless the project owner explicitly asks. Automated probes may reject a result but cannot grant qualitative approval. Hand the project owner the exact absolute paths to the generated `review.html` dashboard and `holistic-review.md` form, name the scenarios/actions to inspect, and describe the concrete defects or acceptance questions to look for. The owner is the visual authority.
-- **Keep animation validation green.** After anything that could affect animation selection, timing, attachment, physics, or rendering, run `npm run visual:test` and fix all automated/probe failures. Then stop for project-owner visual review. The owner watches every normal-speed recording/GIF, action close-up, dense run strip, and transition strip and records timestamped observations, rationales, checklist marks, and verdicts in the generated `holistic-review.md`. Agents must not fill or invent those judgments; they may only transcribe results the owner explicitly supplies. Once the owner has completed an unequivocal `PASS`, run `npm run visual:review:check` and `npm run visual:review:attest`, then commit `visual-review-attestation.json`. CI and deploy reject inputs that differ from that human-reviewed fingerprint. Details: [docs/validation/production-visual-scenarios.md](docs/validation/production-visual-scenarios.md).
+- **Don't over-validate.** `npm test` and `npm run typecheck` are the routine
+  gates. If you touched animation/movement/physics/camera code, also run
+  `npm run visual:check -- <group>` (fast, no video). Nothing else is required
+  and nothing visual gates CI or deploy.
+- **Recordings are for the owner's eyes, on purpose.** Run
+  `npm run visual:record -- <group>` only when *how it looks* is the deliverable
+  and the owner is going to watch it — new/replaced/retimed clips, changed
+  blending or grounding, or when asked. Record the affected group, not all 28
+  scenes. Then hand over the absolute path to `review.html` plus the specific
+  question you want answered, and stop. Do not watch the videos or fill in
+  `review.md` yourself unless asked; the owner is the visual authority and their
+  attention is the scarce resource. Details:
+  [docs/validation/animation-recordings.md](docs/validation/animation-recordings.md).
 - **Research known solutions.** We aren't working on something particularly unique or unusual. For any task, decide if it would be worth researching online to find if there are already known-good or proven solutions, or whether the thing you're doing is simple enough that you can just get straight to it. If it would be worth researching, first check the filenames in docs/ and it's sub-folders to see if any other agent has done the research already. If yes, read it, then think about whether further research is necessary or if you now have what you need. If you do need to do further online research, do it, and record key findings in docs/ . Use and create sub-directories as appropriate, and remember that future agents will go off filenames when deciding whether to read a doc you've written.
 
 ## Assets
@@ -55,10 +66,10 @@ npm run dev         # playtest
 npm run typecheck   # tsc -b
 npm test            # vitest
 npm run build       # tsc -b && vite build
-npm run visual:test # all production animation scenes + review bundle
-npm run visual:review:check # validate the owner's completed review form
-npm run visual:review:attest # bind that reviewed run to current source inputs
-npm run visual:review:attestation:check # reject stale/missing attestation
+
+# Animation only. Both take scenario ids or group names (blank = all 28 scenes).
+npm run visual:check  -- locomotion  # fast probes, no video — run freely
+npm run visual:record -- locomotion  # recordings for the owner to watch
 ```
 
 ## Map

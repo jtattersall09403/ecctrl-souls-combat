@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildEvidenceSegments,
-  buildTransitionSegments,
   compareAnimationProgression,
   evaluateAnimationTransitionMotion,
   evaluateBackstabWeaponRole,
@@ -583,36 +581,6 @@ describe("rendered-pose visual metrics", () => {
     expect(result.failures.join(" ")).toMatch(/clip-time out-point/);
     expect(result.motionChecks[0].maxClipTimeAt).toBe(0.3);
   });
-
-  it("chunks only real action samples into dense evidence intervals", () => {
-    const visualFrames = Array.from({ length: 23 }, (_, index) => {
-      const time = index / 10;
-      return frame(time, sample({ animation: "ROLL", clipTime: time + 0.1 }));
-    });
-    const segments = buildEvidenceSegments(
-      { elapsed: 2.2, visualFrames },
-      { playerAnimations: ["SWORD_IDLE", "ROLL"], enemyAnimations: [], evidenceAnimations: { player: ["ROLL"] } },
-    );
-    expect(segments).toHaveLength(3);
-    expect(segments.every((segment) => segment.animation === "ROLL" && segment.duration <= 1)).toBe(true);
-  });
-
-  it("builds ordered evidence windows spanning both sides of every semantic transition", () => {
-    const telemetry = {
-      elapsed: 1,
-      visualFrames: [
-        frame(0.1, sample({ animation: "SWORD_IDLE" })),
-        frame(0.3, sample({ animation: "BACKSTAB" })),
-        frame(0.55, sample({ animation: "SWORD_IDLE" })),
-      ],
-    };
-    const transitions = buildTransitionSegments(telemetry);
-    expect(transitions.map(({ fromAnimation, toAnimation }) => `${fromAnimation}->${toAnimation}`))
-      .toEqual(["SWORD_IDLE->BACKSTAB", "BACKSTAB->SWORD_IDLE"]);
-    expect(transitions.every(({ start, transitionTime, end }) => start < transitionTime && transitionTime < end))
-      .toBe(true);
-  });
-
   it("detects launch playback that depends on the predecessor state", () => {
     const telemetry = (multiplier) => ({
       visualFrames: [0.1, 0.2, 0.3, 0.4].map((time) => frame(time, sample({

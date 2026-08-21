@@ -170,7 +170,7 @@ npm run assets
 
 ### 6. Validate in increasing-cost order
 
-Run cheap rejection gates before generating video:
+Run cheap rejection gates before generating any video:
 
 ```bash
 cd ../elder-scrolls-asset-pipeline
@@ -179,26 +179,24 @@ python3 -m pipeline.validate --character dunmer-combat
 cd ../ecctrl-souls-combat
 npm test
 npm run typecheck
-npm run visual:smoke -- affected-scenario
+npm run visual:check -- affected-scenario
 ```
 
-Then create one named, focused production recording after the implementation
-and probes are stable:
+Only once that is green and the implementation has settled, record the affected
+group once for the owner:
 
 ```bash
-VISUAL_RUN_ID=ACTION-final npm run visual:test -- affected-scenario related-transition-scenario
+npm run visual:record -- affected-group
 ```
 
-Use a named run for diagnosis and comparison; reserve `latest` for the complete
-acceptance suite. Do not repeatedly render the full suite while source choice,
-timing, or probes are still changing. Once the focused result is mechanically
-green, run `npm run visual:test` once for final coverage.
+Never re-render while source choice, timing, or probes are still moving, and do
+not record the full 28-scene suite unless the owner asks. Use
+`VISUAL_RUN_ID=before`/`after` when you need a comparison pair.
 
-The agent then stops and hands the project owner the absolute paths to the
-generated `review.html` and `holistic-review.md`, plus action-specific questions.
-The owner performs the visual judgment. See
-[`validation/production-visual-scenarios.md`](validation/production-visual-scenarios.md)
-for evidence and attestation rules.
+Then stop and hand the owner the absolute path to `review.html` plus the
+specific question you want answered. The owner makes the visual judgment and
+writes it in `review.md`. See
+[`validation/animation-recordings.md`](validation/animation-recordings.md).
 
 ## Production evidence to add with a new animation
 
@@ -206,8 +204,7 @@ Do not make a one-off viewer. Extend `src/game/validation/` with the smallest
 focused scenario that reaches the action through production behavior, and add:
 
 - complete expected action and rendered-animation runs for both actors;
-- a transition obligation for every behaviorally important entry, exit,
-  follow-up, lethal/nonlethal, or same-semantic ownership edge;
+- the scenario's name in a `visualScenarioGroups.json` group;
 - contact/event assertions where the action affects gameplay;
 - actor-role, weapon-to-body, controller-facing, and floor/support probes where
   applicable;
@@ -215,8 +212,7 @@ focused scenario that reaches the action through production behavior, and add:
 - automatic semantic coverage, or an explicit documented exclusion for
   audition-only clips.
 
-Every required run and transition produces review evidence for the owner. A
-probe should detect a specific known class of defect, not encode a subjective
+A probe should detect a specific known class of defect, not encode a subjective
 idea of style or merely make the current numbers pass.
 
 ## High-value invariants learned from this integration
@@ -267,6 +263,7 @@ Before handoff, verify:
 - [ ] GLB and generated manifest were rebuilt, validated, copied together, and hash-verified.
 - [ ] Gameplay windows were not retuned to conceal presentation defects.
 - [ ] Production action/animation paths and meaningful transitions are asserted.
-- [ ] Focused smoke and recorded probes pass before the full suite is rendered.
-- [ ] The project owner received exact evidence/form paths and concrete questions.
+- [ ] `visual:check` is green before anything was recorded.
+- [ ] Only the affected group was recorded, and only because the owner will watch it.
+- [ ] The project owner received the `review.html` path and a concrete question.
 - [ ] A completed owner `PASS` was checked and attested for the unchanged inputs.

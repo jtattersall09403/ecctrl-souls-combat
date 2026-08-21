@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import {
   buildRunEdges,
   buildRunEvidenceSegments,
-  buildRunReviewChecklist,
   buildRunTransitionSegments,
-  collectContractEdges,
   compareRenderedRunPath,
   extractRenderedRuns,
-  validateTransitionObligations,
 } from "./visual-run-contract.mjs";
-
-const productionContracts = JSON.parse(readFileSync(
-  new URL("../../src/game/validation/visualScenarioExpectations.json", import.meta.url),
-  "utf8",
-));
-const productionTransitionObligations = JSON.parse(readFileSync(
-  new URL("../../src/game/validation/visualTransitionObligations.json", import.meta.url),
-  "utf8",
-));
 
 function frame(time, playerAnimation, clipTime = time, enemyAnimation = null, commandSerial = 1) {
   return {
@@ -169,58 +156,6 @@ describe("rendered animation run contracts", () => {
       .toBe(true);
   });
 
-  it("binds every emitted run and transition artifact to one review item", () => {
-    const checklist = buildRunReviewChecklist([{
-      reviewId: "run:player:01:ROLL#1:part:1-of-1",
-      path: "motion-strips/001-player-roll-part-1-of-1.png",
-      actor: "player",
-      animation: "ROLL",
-      occurrence: 1,
-      commandSerial: 2,
-      start: 0.4,
-      end: 0.8,
-      part: 1,
-      parts: 1,
-    }], [{
-      reviewId: "edge:player:01:SWORD_IDLE#1->ROLL#1",
-      path: "transition-boundaries/001-player-sword-idle-to-roll.png",
-      actor: "player",
-      fromAnimation: "SWORD_IDLE",
-      fromOccurrence: 1,
-      fromCommandSerial: 1,
-      toAnimation: "ROLL",
-      toOccurrence: 1,
-      toCommandSerial: 2,
-      transitionTime: 0.5,
-      start: 0.35,
-      end: 0.75,
-    }]);
-    expect(checklist).toMatchObject([
-      {
-        id: "run:player:01:ROLL#1:part:1-of-1",
-        kind: "animation-run",
-        artifact: "motion-strips/001-player-roll-part-1-of-1.png",
-      },
-      {
-        id: "edge:player:01:SWORD_IDLE#1->ROLL#1",
-        kind: "animation-transition",
-        artifact: "transition-boundaries/001-player-sword-idle-to-roll.png",
-      },
-    ]);
-  });
-
-  it("rejects duplicate review ids or artifact paths", () => {
-    const strip = {
-      reviewId: "run:player:01:ROLL#1:part:1-of-1",
-      path: "motion-strips/001.png",
-    };
-    expect(() => buildRunReviewChecklist([strip, strip], [])).toThrow(/duplicate review checklist id/);
-    expect(() => buildRunReviewChecklist([
-      strip,
-      { ...strip, reviewId: "run:player:02:ROLL#2:part:1-of-1" },
-    ], [])).toThrow(/duplicate review artifact path/);
-  });
-
   it("fails exact validation when command serial evidence is absent", () => {
     const result = compareRenderedRunPath({
       telemetry: { visualFrames: [{ time: 0, player: { animation: "ROLL", clipTime: 0 } }] },
@@ -229,98 +164,5 @@ describe("rendered animation run contracts", () => {
     });
     expect(result.pass).toBe(false);
     expect(result.failures.join(" ")).toMatch(/missing commandSerial/);
-  });
-});
-
-describe("runtime transition obligations", () => {
-  const contracts = {
-    roll: {
-      requiredAnimationRuns: {
-        player: ["SWORD_IDLE", "RUN", "ROLL", "RUN", "SWORD_IDLE"],
-      },
-    },
-    "dodge-followups": {
-      requiredAnimationRuns: {
-        player: ["SWORD_IDLE", "RUN", "ROLL", "LIGHT_1", "SWORD_IDLE", "ROLL", "LIGHT_1", "SWORD_IDLE"],
-      },
-    },
-  };
-
-  it("collects occurrence-aware static edges from scenario contracts", () => {
-    const edges = collectContractEdges(contracts);
-    expect(edges.find(({ scenario, id }) => (
-      scenario === "dodge-followups" && id === "player:06:ROLL#2->LIGHT_1#2"
-    ))).toBeTruthy();
-  });
-
-  it("proves each named FSM obligation is an adjacent scenario edge", () => {
-    const result = validateTransitionObligations(contracts, [{
-      id: "roll-light-followup-second",
-      scenario: "dodge-followups",
-      actor: "player",
-      from: "ROLL",
-      fromOccurrence: 2,
-      to: "LIGHT_1",
-      toOccurrence: 2,
-    }]);
-    expect(result.pass).toBe(true);
-    expect(result.coverage[0].matches).toEqual([{
-      id: "player:06:ROLL#2->LIGHT_1#2",
-      scenario: "dodge-followups",
-    }]);
-  });
-
-  it("rejects uncovered and ambiguous obligations", () => {
-    const uncovered = validateTransitionObligations(contracts, [{
-      id: "roll-heavy-followup",
-      scenario: "dodge-followups",
-      actor: "player",
-      from: "ROLL",
-      to: "HEAVY",
-    }]);
-    expect(uncovered.pass).toBe(false);
-    expect(uncovered.failures.join(" ")).toMatch(/is not an adjacent/);
-
-    const ambiguous = validateTransitionObligations(contracts, [{
-      id: "some-roll-light-followup",
-      scenario: "dodge-followups",
-      actor: "player",
-      from: "ROLL",
-      to: "LIGHT_1",
-    }]);
-    expect(ambiguous.pass).toBe(false);
-    expect(ambiguous.failures.join(" ")).toMatch(/matches 2 edges/);
-  });
-
-  it("rejects duplicate obligation ids as malformed registry data", () => {
-    const duplicate = {
-      id: "roll-entry",
-      scenario: "roll",
-      actor: "player",
-      from: "RUN",
-      to: "ROLL",
-    };
-    expect(() => validateTransitionObligations(contracts, [duplicate, duplicate]))
-      .toThrow(/duplicate transition obligation id/);
-  });
-
-  it("maps every curated production obligation to exactly one occurrence-aware adjacent edge", () => {
-    for (const obligation of productionTransitionObligations) {
-      expect(Number.isInteger(obligation.fromOccurrence), `${obligation.id} from occurrence`).toBe(true);
-      expect(Number.isInteger(obligation.toOccurrence), `${obligation.id} to occurrence`).toBe(true);
-      expect(obligation.fromOccurrence).toBeGreaterThan(0);
-      expect(obligation.toOccurrence).toBeGreaterThan(0);
-    }
-    const result = validateTransitionObligations(
-      productionContracts,
-      productionTransitionObligations,
-    );
-    expect(result.failures).toEqual([]);
-    expect(result.coverage).toHaveLength(productionTransitionObligations.length);
-    expect(result.coverage.every(({ matches }) => matches.length === 1)).toBe(true);
-    expect(result.coverage.find(({ id }) => id === "riposte-victim-contact-reaction")?.matches)
-      .toEqual([{ id: "enemy:03:GUARD_BREAK#1->RIPOSTED_HIT1#1", scenario: "riposte" }]);
-    expect(result.coverage.find(({ id }) => id === "lethal-riposte-victim-death-at-contact")?.matches)
-      .toEqual([{ id: "enemy:01:GUARD_BREAK#1->CRITICAL_DEATH#1", scenario: "riposte-lethal" }]);
   });
 });

@@ -34,7 +34,6 @@ const DEFAULT_ACTOR_ORIENTATION_LIMITS = Object.freeze({
 });
 
 const MAX_CONTIGUOUS_FRAME_GAP_SECONDS = 0.12;
-const EVIDENCE_CHUNK_SECONDS = 1;
 // The character's visual origin includes Ecctrl's 18 cm floating suspension.
 // At impact the physical capsule may compress below that neutral origin while
 // the rendered support solve keeps the visible actor on the plane. Correction
@@ -928,110 +927,6 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
     actorSeparation,
     failures,
   };
-}
-
-function requestedEvidenceAnimations(expected, actor) {
-  return expected.evidenceAnimations?.[actor] ?? expectedAnimations(expected, actor);
-}
-
-/** Build contiguous, chronological semantic-action segments from real probes. */
-export function buildEvidenceSegments(telemetry, expected, maxChunkSeconds = EVIDENCE_CHUNK_SECONDS) {
-  const segments = [];
-  for (const actor of ["player", "enemy"]) {
-    const wanted = requestedEvidenceAnimations(expected, actor);
-    if (!wanted.length) continue;
-    let current = null;
-    for (const frame of actorFrames(telemetry.visualFrames ?? [], actor)) {
-      const animation = frame.sample.animation;
-      if (!wanted.includes(animation)) {
-        current = null;
-        continue;
-      }
-      if (
-        current
-        && current.animation === animation
-        && frame.time - current.end <= MAX_CONTIGUOUS_FRAME_GAP_SECONDS
-      ) {
-        current.end = frame.time;
-        current.samples += 1;
-      } else {
-        current = { actor, animation, start: frame.time, end: frame.time, samples: 1 };
-        segments.push(current);
-      }
-    }
-  }
-
-  const chunks = [];
-  for (const segment of segments.sort((a, b) => a.start - b.start || a.actor.localeCompare(b.actor))) {
-    const paddedStart = Math.max(0, segment.start - 0.05);
-    const paddedEnd = Math.min(telemetry.elapsed, Math.max(segment.end + 0.05, paddedStart + 0.1));
-    const chunkCount = Math.max(1, Math.ceil((paddedEnd - paddedStart) / maxChunkSeconds));
-    for (let index = 0; index < chunkCount; index += 1) {
-      const start = paddedStart + index * maxChunkSeconds;
-      const end = Math.min(paddedEnd, start + maxChunkSeconds);
-      chunks.push({
-        actor: segment.actor,
-        animation: segment.animation,
-        start: round(start, 3),
-        end: round(end, 3),
-        duration: round(Math.max(0.1, end - start), 3),
-        part: index + 1,
-        parts: chunkCount,
-        sourceSamples: segment.samples,
-      });
-    }
-  }
-  return chunks;
-}
-
-/**
- * Ordered windows around every animation-state handoff sampled from the final
- * rendered actors. Action-only strips deliberately stop at clip boundaries;
- * these windows retain both sides so an exit pop or paired-action handoff is
- * always visible to the qualitative reviewer.
- */
-export function buildTransitionSegments(telemetry, {
-  beforeSeconds = 0.15,
-  afterSeconds = 0.25,
-} = {}) {
-  const visualFrames = Array.isArray(telemetry.visualFrames) ? telemetry.visualFrames : [];
-  const duration = finite(telemetry.elapsed)
-    ? telemetry.elapsed
-    : Math.max(0, ...visualFrames.map((frame) => finite(frame.time) ? frame.time : 0));
-  const transitions = [];
-  for (const actor of ["player", "enemy"]) {
-    const frames = actorFrames(visualFrames, actor);
-    let previous = null;
-    for (const current of frames) {
-      if (previous && current.sample.animation !== previous.sample.animation) {
-        const transitionTime = current.time;
-        const start = Math.max(0, transitionTime - beforeSeconds);
-        const end = Math.min(duration, transitionTime + afterSeconds);
-        if (end > start) {
-          transitions.push({
-            actor,
-            fromAnimation: previous.sample.animation,
-            toAnimation: current.sample.animation,
-            transitionTime: round(transitionTime, 3),
-            start: round(start, 3),
-            end: round(end, 3),
-            duration: round(end - start, 3),
-          });
-        }
-      }
-      previous = current;
-    }
-  }
-  return transitions.sort((first, second) => (
-    first.transitionTime - second.transitionTime || first.actor.localeCompare(second.actor)
-  ));
-}
-
-export function evidenceWindow(segments, scenarioDuration) {
-  if (!segments.length) return { start: 0, end: scenarioDuration, duration: scenarioDuration };
-  const start = Math.max(0, Math.min(...segments.map((segment) => segment.start)) - 0.1);
-  const end = Math.min(scenarioDuration, Math.max(...segments.map((segment) => segment.end)) + 0.1);
-  return { start: round(start, 3), end: round(end, 3), duration: round(Math.max(0.1, end - start), 3) };
 }
 
 function firstAnimationTrace(telemetry, actor, animation) {

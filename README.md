@@ -62,13 +62,17 @@ Validation:
 npm test
 npm run typecheck
 npm run build
-npm run visual:test          # animation-affecting changes: record all production scenes
-npm run visual:review:check  # after the project owner completes holistic-review.md
 ```
 
-The animation gate covers every runtime semantic clip and is not green until
-both production telemetry and the recorded qualitative review pass. See
-[`docs/validation/production-visual-scenarios.md`](docs/validation/production-visual-scenarios.md).
+Animation work has two extra tools, both scoped to a scenario group:
+
+```bash
+npm run visual:check  -- locomotion  # fast automated probes, no video
+npm run visual:record -- locomotion  # recordings for a human to watch
+```
+
+Recording exists so animation changes can be judged by eye; it is not a gate.
+See [`docs/validation/animation-recordings.md`](docs/validation/animation-recordings.md).
 
 ## Project layout
 

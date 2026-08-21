@@ -31,7 +31,7 @@ character, animation and movement architecture.
 | [architecture/movement-speed-tuning.md](architecture/movement-speed-tuning.md) | Where to edit travel speed vs animation playback speed for locomotion/dodges |
 | [assets/rebuilding-the-character.md](assets/rebuilding-the-character.md) | Rebuild the character GLB from Skyrim source |
 | [assets/animation-source-audit.md](assets/animation-source-audit.md) | Selected Skyrim clips, external-source provenance, and audition results |
-| [validation/production-visual-scenarios.md](validation/production-visual-scenarios.md) | Repeatable browser scenes that exercise production input/combat/rendering |
+| [validation/animation-recordings.md](validation/animation-recordings.md) | When to run the animation probes vs. record video for the owner to review |
 
 ## Non-negotiables
 

@@ -13,11 +13,8 @@
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
     "visual:install": "playwright install chromium",
-    "visual:smoke": "npm run build && node scripts/capture-visual-scenarios.mjs --prebuilt --tiny --no-video",
-    "visual:test": "npm run build && node scripts/capture-visual-scenarios.mjs --prebuilt",
-    "visual:review:check": "node scripts/check-visual-review.mjs",
-    "visual:review:attest": "node scripts/attest-visual-review.mjs",
-    "visual:review:attestation:check": "node scripts/check-visual-review-attestation.mjs"
+    "visual:check": "npm run build && node scripts/capture-visual-scenarios.mjs --prebuilt --tiny --no-video",
+    "visual:record": "npm run build && node scripts/capture-visual-scenarios.mjs --prebuilt"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

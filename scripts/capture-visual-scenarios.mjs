@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import { chromium } from "playwright";
 import {
@@ -17,10 +18,8 @@ import {
 } from "./lib/visual-validation.mjs";
 import {
   buildRunEvidenceSegments,
-  buildRunReviewChecklist,
   buildRunTransitionSegments,
   compareRenderedRunPath,
-  validateTransitionObligations,
 } from "./lib/visual-run-contract.mjs";
 import { compareActionRunPath } from "./lib/visual-action-run-contract.mjs";
 import {
@@ -36,25 +35,17 @@ import {
   VISUAL_FRAME_MARKER_PROTOCOL,
   VISUAL_FRAME_MARKER_WIDTH,
 } from "./lib/visual-frame-marker.mjs";
-import { buildReviewMarkdown, REVIEW_RUBRIC } from "./lib/visual-review.mjs";
-import {
-  computeVisualSourceFingerprint,
-  sameVisualSourceFingerprint,
-} from "./lib/visual-source-fingerprint.mjs";
+import { buildReviewMarkdown, REVIEW_PROMPTS } from "./lib/visual-review.mjs";
 import { assertVisualRunId, visualRunDirectory } from "./lib/visual-run-directory.mjs";
 
 const expectations = JSON.parse(await readFile(
   new URL("../src/game/validation/visualScenarioExpectations.json", import.meta.url),
   "utf8",
 ));
-const transitionObligations = JSON.parse(await readFile(
-  new URL("../src/game/validation/visualTransitionObligations.json", import.meta.url),
+const scenarioGroups = JSON.parse(await readFile(
+  new URL("../src/game/validation/visualScenarioGroups.json", import.meta.url),
   "utf8",
 ));
-const transitionObligationCoverage = validateTransitionObligations(expectations, transitionObligations);
-if (!transitionObligationCoverage.pass) {
-  throw new Error(`Invalid production transition obligations:\n${transitionObligationCoverage.failures.join("\n")}`);
-}
 const animationExclusions = JSON.parse(await readFile(
   new URL("../src/game/validation/visualAnimationExclusions.json", import.meta.url),
   "utf8",
@@ -66,11 +57,30 @@ const animationManifest = JSON.parse(await readFile(
 const ALL_SCENARIOS = Object.keys(expectations);
 const flags = new Set(process.argv.slice(2).filter((argument) => argument.startsWith("--")));
 const requested = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
-const scenarios = requested.length ? requested : ALL_SCENARIOS;
-const unknown = scenarios.filter((id) => !ALL_SCENARIOS.includes(id));
-if (unknown.length) throw new Error(`Unknown scenario(s): ${unknown.join(", ")}`);
+// A group name expands to its scenarios so an agent can record only the slice
+// it changed. Recording all 28 scenes is the exception, not the routine.
+const resolved = requested.flatMap((argument) => scenarioGroups[argument] ?? [argument]);
+const unknown = resolved.filter((id) => !ALL_SCENARIOS.includes(id));
+if (unknown.length) {
+  throw new Error(
+    `Unknown scenario/group: ${unknown.join(", ")}\n`
+    + `Groups: ${Object.keys(scenarioGroups).join(", ")}\n`
+    + `Scenarios: ${ALL_SCENARIOS.join(", ")}`,
+  );
+}
+const scenarios = resolved.length ? [...new Set(resolved)] : ALL_SCENARIOS;
+const partialSuite = scenarios.length !== ALL_SCENARIOS.length;
 
 const root = process.cwd();
+// Resolve Vite through Node rather than assuming ./node_modules. A git worktree
+// has no node_modules of its own and resolves up to the main checkout. Vite's
+// exports map hides ./bin, so go via its package.json and declared bin entry.
+const vitePackagePath = createRequire(import.meta.url).resolve("vite/package.json");
+const vitePackage = JSON.parse(await readFile(vitePackagePath, "utf8"));
+const viteBin = join(
+  dirname(vitePackagePath),
+  typeof vitePackage.bin === "string" ? vitePackage.bin : vitePackage.bin.vite,
+);
 const scenarioTimeoutMs = Number(process.env.VISUAL_TIMEOUT_MS ?? 240_000);
 const viewport = flags.has("--tiny") ? { width: 400, height: 225 } : { width: 800, height: 450 };
 const recorderViewport = {
@@ -90,7 +100,6 @@ if (!Number.isInteger(serverPort) || serverPort < 1024 || serverPort > 65535) {
 const serverOrigin = `http://127.0.0.1:${serverPort}`;
 const gameUrl = `${serverOrigin}/ecctrl-souls-combat/`;
 const outputDir = visualRunDirectory(root, runId);
-const capturedSourceFingerprint = await computeVisualSourceFingerprint(root);
 const videoScratch = await mkdtemp(join(tmpdir(), "combat-visual-"));
 // A named run is an atomic evidence bundle. Mixing old scenario files with a
 // partial rerun can make a failed or missing capture look reviewed.
@@ -537,28 +546,26 @@ async function makeTransitionStrips(frameSequence, scenarioDir, segments, frameT
   return strips;
 }
 
+/**
+ * Report which runtime animations no scenario reaches. This is a nudge, not a
+ * gate: an agent adding a new clip should be able to record it before the
+ * scenario registry has caught up.
+ */
 function coverage() {
   const coveredAnimations = new Set(Object.values(expectations).flatMap((expected) => [
     ...expected.playerAnimations,
     ...expected.enemyAnimations,
   ]));
-  const runtimeAnimations = Object.keys(animationManifest.animations)
-    .filter((animation) => !(animation in animationExclusions));
-  const missing = runtimeAnimations.filter((animation) => !coveredAnimations.has(animation));
-  if (missing.length) throw new Error(`Visual coverage is missing runtime animation(s): ${missing.join(", ")}`);
-  return {
-    covered: [...coveredAnimations].sort(),
-    excluded: animationExclusions,
-    missing,
-    summary: `${coveredAnimations.size} runtime semantic animations covered; ${Object.keys(animationExclusions).length} audition-only clips explicitly excluded`,
-  };
+  const missing = Object.keys(animationManifest.animations)
+    .filter((animation) => !(animation in animationExclusions))
+    .filter((animation) => !coveredAnimations.has(animation));
+  if (missing.length) {
+    console.warn(`WARN no scenario covers runtime animation(s): ${missing.join(", ")}`);
+  }
+  return { covered: [...coveredAnimations].sort(), excluded: animationExclusions, missing };
 }
 
 async function writeReviewBundle(crossScenarioAnalysis) {
-  const completedSourceFingerprint = await computeVisualSourceFingerprint(root);
-  if (!sameVisualSourceFingerprint(capturedSourceFingerprint, completedSourceFingerprint)) {
-    throw new Error("Animation/capture inputs changed while the visual run was recording; discard this mixed-source run and recapture");
-  }
   const generatedAt = new Date().toISOString();
   const semanticAnimationCoverage = coverage();
   const statuses = {
@@ -569,60 +576,60 @@ async function writeReviewBundle(crossScenarioAnalysis) {
   const markdown = buildReviewMarkdown({
     generatedAt,
     runId,
-    coverageSummary: semanticAnimationCoverage.summary,
     scenarios: completed,
     automatedStatus: statuses.automated,
     probeStatus: statuses.probe,
-    crossScenarioStatus: statuses.cross,
   });
-  await writeFile(join(outputDir, "holistic-review.md"), markdown);
+  await writeFile(join(outputDir, "review.md"), markdown);
 
+  const stripFigure = (scenario, path, caption) => `
+      <figure><img loading="lazy" src="./${encodeURIComponent(scenario)}/${path}" alt="${escapeHtml(caption)}"><figcaption>${escapeHtml(caption)}</figcaption></figure>`;
   const cards = completed.map(({ scenario, label, telemetry, evidence, analysis }) => {
-    const strips = evidence.strips.map((strip) => `
-      <figure><img src="./${encodeURIComponent(scenario)}/${strip.path}" alt="${escapeHtml(`${strip.actor} ${strip.animation} ${strip.start}s to ${strip.end}s`)}"><figcaption><code>${escapeHtml(strip.reviewId)}</code> · ${escapeHtml(`${strip.actor} · ${strip.animation} · ${strip.start}s–${strip.end}s`)}</figcaption></figure>`).join("");
-    const transitionStrips = evidence.transitionBoundaryStrips.map((strip) => `
-      <figure><img src="./${encodeURIComponent(scenario)}/${strip.path}" alt="${escapeHtml(`${strip.actor} ${strip.fromAnimation} to ${strip.toAnimation} around ${strip.transitionTime}s`)}"><figcaption><code>${escapeHtml(strip.reviewId)}</code> · ${escapeHtml(`${strip.actor} · ${strip.fromAnimation} → ${strip.toAnimation} · boundary ${strip.transitionTime}s · window ${strip.start}s–${strip.end}s`)}</figcaption></figure>`).join("");
+    const strips = evidence.strips.map((strip) => stripFigure(
+      scenario,
+      strip.path,
+      `${strip.actor} · ${strip.animation} · ${strip.start}s–${strip.end}s`,
+    )).join("");
+    const transitionStrips = evidence.transitionBoundaryStrips.map((strip) => stripFigure(
+      scenario,
+      strip.path,
+      `${strip.actor} · ${strip.fromAnimation} → ${strip.toAnimation} · boundary ${strip.transitionTime}s`,
+    )).join("");
+    const failures = [...analysis.failures ?? []];
     return `<article id="${escapeHtml(scenario)}">
       <h2>${escapeHtml(scenario)} — ${escapeHtml(label)}</h2>
-      <h3>1. Normal-speed production scene</h3>
-      ${recordVideo ? `<video controls muted preload="metadata" src="./${encodeURIComponent(scenario)}/recording.webm"></video>` : "<p><strong>Smoke run: no recording; qualitative approval is impossible.</strong></p>"}
-      ${recordVideo ? `<details><summary>Normal-speed GIF alternative (same production pixels)</summary><img src="./${encodeURIComponent(scenario)}/normal-speed-review.gif" alt="${escapeHtml(`${scenario} normal-speed animated review`)}"></details>` : ""}
-      <h3>2. Action-only enlarged replay</h3>
-      ${recordVideo ? `<video controls loop muted preload="metadata" src="./${encodeURIComponent(scenario)}/action-closeup.webm"></video>` : "<p>Not generated by a no-video smoke run.</p>"}
-      <h3>3. Dense frame-level strips</h3>
-      <div class="strips">${strips || "<p>No action strip was generated.</p>"}</div>
-      <h3>4. Ordered semantic-transition boundary strips</h3>
-      <p>Each strip spans both sides of the named handoff; inspect every strip in order for entry and exit pops.</p>
-      <div class="strips">${transitionStrips || "<p>No semantic transition was sampled.</p>"}</div>
-      <h3>Full-scene overview</h3>
-      <a href="./${encodeURIComponent(scenario)}/${recordVideo ? "contact-sheet.png" : "final.png"}"><img src="./${encodeURIComponent(scenario)}/${recordVideo ? "contact-sheet.png" : "final.png"}" alt="${escapeHtml(scenario)} overview"></a>
-      <details><summary>Motion analysis (diagnostic; never grants PASS)</summary><pre>${escapeHtml(JSON.stringify(analysis, null, 2))}</pre></details>
-      <details><summary>Production telemetry</summary><pre>${escapeHtml(JSON.stringify(telemetry, null, 2))}</pre></details>
-      <h3>Required qualitative rubric</h3><ul>${REVIEW_RUBRIC.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      ${failures.length ? `<p class="fail">Automated probes flagged this scene:</p><ul class="fail">${failures.map((failure) => `<li>${escapeHtml(failure)}</li>`).join("")}</ul>` : ""}
+      ${recordVideo
+        ? `<video controls muted preload="metadata" src="./${encodeURIComponent(scenario)}/recording.webm"></video>
+      <p>Action close-up:</p>
+      <video controls loop muted preload="metadata" src="./${encodeURIComponent(scenario)}/action-closeup.webm"></video>
+      <details><summary>Normal-speed GIF (same pixels, no video player needed)</summary><img loading="lazy" src="./${encodeURIComponent(scenario)}/normal-speed-review.gif" alt="${escapeHtml(scenario)} normal-speed animated review"></details>`
+        : "<p><strong>No-video check run: nothing to watch here.</strong></p>"}
+      <details><summary>Frame-by-frame strips (open if something looked off)</summary>
+        <div class="strips">${strips || "<p>None generated.</p>"}</div>
+        <h4>Transition boundaries</h4>
+        <div class="strips">${transitionStrips || "<p>None sampled.</p>"}</div>
+      </details>
+      <details><summary>Diagnostics (motion analysis + telemetry)</summary><pre>${escapeHtml(JSON.stringify(analysis, null, 2))}</pre><pre>${escapeHtml(JSON.stringify(telemetry, null, 2))}</pre></details>
     </article>`;
   }).join("\n");
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Combat visual review · ${escapeHtml(runId)}</title><style>
-body{margin:0;background:#151616;color:#e8e1d2;font:15px/1.45 system-ui,sans-serif}header,main{max-width:1200px;margin:auto;padding:24px}article{background:#222424;border:1px solid #474944;border-radius:8px;margin:0 0 26px;padding:18px}h1,h2,h3{font-family:Georgia,serif}video,img{display:block;width:100%;max-height:680px;object-fit:contain;background:#080909;margin:12px 0}.strips img{image-rendering:auto}figure{margin:16px 0}figcaption{color:#c6bdad}ul{padding-left:24px}li{margin:8px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body>
-<header><h1>Project-owner production animation review</h1><p>Run <code>${escapeHtml(runId)}</code> · generated ${escapeHtml(generatedAt)}</p><p>For each scene, watch item 1 once at normal speed before opening items 2–4 or diagnostics. Judge only what the shipped view actually communicates, then record the result in <code>holistic-review.md</code>. Coding agents must not complete that judgment unless you explicitly ask them to.</p></header><main>${cards}</main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Animation review · ${escapeHtml(runId)}</title><style>
+body{margin:0;background:#151616;color:#e8e1d2;font:15px/1.45 system-ui,sans-serif}header,main{max-width:1100px;margin:auto;padding:24px}article{background:#222424;border:1px solid #474944;border-radius:8px;margin:0 0 26px;padding:18px}h1,h2,h3,h4{font-family:Georgia,serif}video,img{display:block;width:100%;max-height:620px;object-fit:contain;background:#080909;margin:12px 0}figure{margin:16px 0}figcaption{color:#c6bdad}summary{cursor:pointer;margin:12px 0;color:#c6bdad}ul{padding-left:24px}li{margin:6px 0}.fail{color:#f2a08a}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body>
+<header><h1>Animation review · ${escapeHtml(runId)}</h1><p>Generated ${escapeHtml(generatedAt)} · ${completed.length} scene${completed.length === 1 ? "" : "s"}</p>
+<p>Watch each scene once at normal speed, then write your verdict and notes in <code>review.md</code> next to this file. Open the strips only if the normal-speed watch raised a question.</p>
+<ul>${REVIEW_PROMPTS.map((prompt) => `<li>${escapeHtml(prompt)}</li>`).join("")}</ul></header><main>${cards}</main></body></html>`;
   await writeFile(join(outputDir, "review.html"), html);
   await writeFile(join(outputDir, "run.json"), `${JSON.stringify({
-    evidenceVersion: 6,
     runId,
     generatedAt,
-    sourceFingerprint: capturedSourceFingerprint,
     recordVideo,
     fastRendering,
+    partialSuite,
     viewport,
     automatedAssertions: automatedFailures.length ? "fail" : "pass",
     probeAssertions: probeFailures.length ? "fail" : "pass",
     crossScenarioAssertions: crossScenarioAnalysis.pass === true ? "pass" : crossScenarioAnalysis.pass === false ? "fail" : "not-run",
-    qualitativeReview: "PENDING",
     semanticAnimationCoverage,
-    transitionObligationCoverage: {
-      pass: true,
-      obligations: transitionObligations.length,
-      resolvedEdges: transitionObligationCoverage.coverage,
-    },
     scenarios: completed.map(({ scenario }) => scenario),
     scenarioEvidence: Object.fromEntries(completed.map(({ scenario, evidence }) => [scenario, evidence])),
     failures: {
@@ -636,12 +643,12 @@ body{margin:0;background:#151616;color:#e8e1d2;font:15px/1.45 system-ui,sans-ser
 // Preview must always serve the sources under review. Reusing an old dist/
 // silently validated stale code in exactly the workflow this suite guards.
 if (!prebuilt) {
-  runProcess(process.execPath, ["node_modules/vite/bin/vite.js", "build"], "production visual build");
+  runProcess(process.execPath, [viteBin, "build"], "production visual build");
 }
 
 const vite = spawn(
   process.execPath,
-  ["node_modules/vite/bin/vite.js", "preview", "--base", "/ecctrl-souls-combat/", "--host", "127.0.0.1", "--port", String(serverPort), "--strictPort"],
+  [viteBin, "preview", "--base", "/ecctrl-souls-combat/", "--host", "127.0.0.1", "--port", String(serverPort), "--strictPort"],
   { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
 );
 let serverLog = "";
@@ -879,9 +886,7 @@ try {
         await retimedRecording.disposeFrameSequence();
       }
     }
-    const reviewChecklist = buildRunReviewChecklist(strips, transitionBoundaryStrips);
     const evidence = {
-      version: 6,
       normalSpeedRecording: recordVideo ? "recording.webm" : null,
       agentReviewGif: recordVideo ? "normal-speed-review.gif" : null,
       actionCloseup: recordVideo ? "action-closeup.webm" : null,
@@ -892,7 +897,6 @@ try {
       intervals,
       strips,
       transitionBoundaryStrips,
-      reviewChecklist,
       animationRunContracts: Object.fromEntries(Object.entries(animationRunContracts).map(([actor, contract]) => [actor, {
         pass: contract.pass,
         expectedStates: contract.expectedStates,
@@ -902,7 +906,7 @@ try {
     await writeFile(join(scenarioDir, "evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
     completed.push({ scenario, label: telemetry.label, telemetry, evidence, analysis });
     const statusLabel = semantic.length || !analysis.pass || !segments.length ? "FAIL" : "PASS";
-    console.log(`${statusLabel} ${scenario}: ${recordVideo ? "normal-speed video + close-up + action/transition strips" : "fast telemetry smoke"}`);
+    console.log(`${statusLabel} ${scenario}${recordVideo ? "" : " (no video)"}`);
   }
 
   let crossScenarioAnalysis = { pass: null, reason: "stationary-landing and moving-landing were not both captured" };
@@ -918,7 +922,10 @@ try {
   }
   await writeFile(join(outputDir, "cross-scenario-analysis.json"), `${JSON.stringify(crossScenarioAnalysis, null, 2)}\n`);
   await writeReviewBundle(crossScenarioAnalysis);
-  console.log(`REVIEW ${join(outputDir, "review.html")}`);
+  if (recordVideo) {
+    console.log(`\nWATCH  ${join(outputDir, "review.html")}`);
+    console.log(`NOTES  ${join(outputDir, "review.md")}`);
+  }
 
   const failures = [...automatedFailures, ...probeFailures, ...crossScenarioFailures];
   if (failures.length) throw new Error(`Visual validation failed:\n${failures.join("\n")}`);

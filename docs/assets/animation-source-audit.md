@@ -88,4 +88,4 @@ are under `output/backstep-vanilla-search-a/` and
 `output/audition-backstep-vanilla-search-a.glb`; these contain derived
 mod/Bethesda imagery and remain local. The production-path browser
 scenes are documented in
-[`../validation/production-visual-scenarios.md`](../validation/production-visual-scenarios.md).
+[`../validation/animation-recordings.md`](../validation/animation-recordings.md).
