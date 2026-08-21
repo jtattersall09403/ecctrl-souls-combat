@@ -49,14 +49,14 @@ export const ENEMY_STATE_DURATIONS = {
 // action's duration.
 export const DODGE_SPEED = {
   playerRoll: 10.0,
-  playerBackstep: 4.2,
-  enemyRoll: 6.7,
-  enemyBackstep: 4.1,
+  playerBackstep: 7.0,
+  enemyRoll: 10.0,
+  enemyBackstep: 7.0,
 } as const;
 
 export const ENEMY_LOCOMOTION = {
   walkVel: 1.75,
-  runVel: 2.55,
+  runVel: 4.5,
   runDistance: 6,
   decisionMin: 0.3,
   decisionJitter: 0.2,

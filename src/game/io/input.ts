@@ -194,12 +194,12 @@ export function resolveAttackDirection(
 // Single source of truth for the player's Ecctrl top speeds — CombatScene's
 // <Ecctrl maxWalkVel/maxRunVel> must use these same constants, since Ecctrl's
 // own cap runs before analogueMoveSpeed's clamp ever gets a chance to act.
-export const PLAYER_WALK_SPEED = 5.5;
-export const PLAYER_SPRINT_SPEED = 8.0;
+export const PLAYER_WALK_SPEED = 4.5;
+export const PLAYER_SPRINT_SPEED = 6.0;
 // Locked-on movement is always walk-paced (sprint is disabled while locked on)
 // but is tuned independently from free-roam walking, since strafing around a
 // target reads better at a different pace than walking in a straight line.
-export const PLAYER_LOCK_ON_WALK_SPEED = 3.8;
+export const PLAYER_LOCK_ON_WALK_SPEED = 3.0;
 
 export function analogueMoveSpeed(magnitude: number, sprinting: boolean) {
   const amount = Math.min(1, Math.max(0, magnitude));
