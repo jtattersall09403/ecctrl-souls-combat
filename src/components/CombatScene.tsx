@@ -1,6 +1,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { CapsuleCollider, CuboidCollider, Physics, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { Ecctrl, type EcctrlHandle } from "ecctrl";
+import { useGLTF } from "@react-three/drei";
 import { Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import * as THREE from "three";
 import { createAnimationCommand, updateAnimationCommand, type AnimationCommand } from "../game/anim/animationCommand";
@@ -27,6 +28,7 @@ import {
   PLAYER_DODGE_SPEED,
   RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
+import { itemAsset } from "../game/inventory/registry";
 import {
   useEquippedArrow,
   useEquippedLoadout,
@@ -506,6 +508,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
         colliders={false}
         name={runtime.bodyName}
       >
+        <Suspense fallback={null}>
         <SkyrimFighter
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
@@ -522,6 +525,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
           visualProbe={validation ? runtime.visualProbe : undefined}
           visualSupportY={0}
         />
+        </Suspense>
         <LockOnReticle visible={reticleVisible} anchor={runtime.targetAnchor} />
       </Ecctrl>
       {HAS_SKELETAL_HURTBOX
@@ -538,7 +542,39 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
   );
 }
 
+/**
+ * Warm the item cache while the player is busy.
+ *
+ * Every actor suspends when it is handed a mesh the browser has not fetched, so
+ * the first time a weapon is equipped it blinks. Fetching what the player is
+ * already carrying, slowly, in the background, costs nothing anyone notices and
+ * removes that entirely. Deliberately paced: firing fifty requests at once
+ * would compete with whatever the scene still needs.
+ */
+function useCarriedAssetWarmup(enabled: boolean) {
+  const stacks = useInventoryStore((state) => state.inventory.stacks);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const urls = [...new Set(stacks.map((stack) => itemAsset(stack.itemId)).filter(Boolean))]
+      .map((asset) => `${import.meta.env.BASE_URL}${asset}`);
+    let index = 0;
+    let timer = 0;
+    const step = () => {
+      if (index >= urls.length) return;
+      useGLTF.preload(urls[index]);
+      index += 1;
+      timer = window.setTimeout(step, WARMUP_INTERVAL_MS);
+    };
+    timer = window.setTimeout(step, WARMUP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [enabled, stacks]);
+}
+
+const WARMUP_DELAY_MS = 2500;
+const WARMUP_INTERVAL_MS = 140;
+
 function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
+  const inventoryOpen = useInventoryStore((state) => state.open) && !visualScenario;
   // The player's equipped kit. Every moveset, animation and socket the player
   // uses comes from here, so equipping something in the inventory swaps all of
   // them — including what a raised guard is made of.
@@ -546,6 +582,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const playerLoadout = useEquippedLoadout();
   const playerArmour = useWornArmour();
   const playerQuiver = useEquippedArrow();
+  // Validation runs a fixed, deterministic scene; background fetches would only
+  // add noise to it.
+  useCarriedAssetWarmup(!visualScenario);
   const playerWeapon = playerLoadout.mainHand;
   const consumeArrow = useInventoryStore((state) => state.remove);
   const playerGuard = useMemo(() => activeGuardProfile(playerLoadout), [playerLoadout]);
@@ -1255,6 +1294,10 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
 
   useFrame((_, rawDelta) => {
     if (!started) return;
+    // Nothing advances behind the inventory: not the clock, not the input edges
+    // the FSM reads, not the enemies. A modal screen that leaves the fight
+    // running is a screen a player cannot safely open.
+    if (inventoryOpen) return;
     const frameDelta = Math.min(rawDelta, 1 / 30);
     visualDriver.current?.apply(frameDelta, input);
     input.update();
@@ -2554,6 +2597,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         enabledRotations={[false, true, false]}
         name="player"
       >
+        <Suspense fallback={null}>
         <SkyrimFighter
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
@@ -2571,6 +2615,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           visualProbe={visualScenario ? playerVisualProbe.current : undefined}
           visualSupportY={0}
         />
+        </Suspense>
       </Ecctrl>
       {HAS_SKELETAL_HURTBOX
         ? <SkeletalHurtbox rig={playerHurtbox} name={PLAYER_HURTBOX_NAME} probe={Boolean(visualScenario)} />
@@ -2603,6 +2648,10 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
 
 export function CombatScene({ visualScenario = null }: { visualScenario?: VisualScenario | null }) {
   const showHitboxes = useGameStore((state) => state.showHitboxes);
+  // The inventory is a modal screen: the world stops while it is up. Pausing
+  // the solver rather than only the combat update is what keeps an actor from
+  // sliding to a halt, or an arrow from landing, behind the panel.
+  const paused = useInventoryStore((state) => state.open) && !visualScenario;
   return (
     <>
       <color attach="background" args={["#dceff4"]} />
@@ -2620,7 +2669,7 @@ export function CombatScene({ visualScenario = null }: { visualScenario?: Visual
         shadow-camera-top={16}
         shadow-camera-bottom={-16}
       />
-      <Physics gravity={[0, -9.81, 0]} timeStep={1 / 60} interpolate debug={showHitboxes}>
+      <Physics gravity={[0, -9.81, 0]} timeStep={1 / 60} interpolate paused={paused} debug={showHitboxes}>
         <Arena />
         <Battle visualScenario={visualScenario} />
       </Physics>

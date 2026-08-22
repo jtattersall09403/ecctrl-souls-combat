@@ -93,6 +93,23 @@ export class InputController {
     };
   }
 
+  /**
+   * Forget everything currently held.
+   *
+   * Called when a modal screen takes the input: a click that equipped an item
+   * is a mouse-down the combat FSM would otherwise read as a light attack the
+   * moment the screen closes.
+   */
+  clearHeld() {
+    this.keys.clear();
+    this.mouse.clear();
+    this.virtual.clear();
+    this.previous.clear();
+    this.current.clear();
+    this.touchMove = { x: 0, y: 0 };
+    this.touchCamera = { x: 0, y: 0 };
+  }
+
   setVirtual(action: InputAction, active: boolean) {
     if (active) this.virtual.add(action);
     else this.virtual.delete(action);

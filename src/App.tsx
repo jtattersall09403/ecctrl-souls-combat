@@ -1,7 +1,8 @@
 import { Canvas, advance } from "@react-three/fiber";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BASE_FIELD_OF_VIEW } from "./game/physics/characterPhysics";
 import { CombatScene } from "./components/CombatScene";
+import { input } from "./game/io/input";
 import { InventoryScreen } from "./ui/inventory/InventoryScreen";
 import { RacePicker } from "./ui/RacePicker";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
@@ -84,6 +85,24 @@ export function App() {
     };
   }, [visualRecording, visualScenario]);
 
+  /**
+   * Take the pointer back for mouse-look.
+   *
+   * The rejection is swallowed on purpose. Chrome refuses to re-lock for a
+   * second or so after the *user* pressed Escape to get out, which is a
+   * deliberate anti-trap measure; the next click succeeds. Letting that reject
+   * unhandled fills the console with something the player has already fixed by
+   * clicking again.
+   */
+  const requestMouseLook = useCallback(() => {
+    const element = canvasEl.current;
+    if (!element || document.pointerLockElement === element) return;
+    const pending = element.requestPointerLock?.() as unknown;
+    if (pending && typeof (pending as Promise<void>).catch === "function") {
+      (pending as Promise<void>).catch(() => undefined);
+    }
+  }, []);
+
   // The inventory is a modal screen, so it owns the keyboard while it is up and
   // releases the pointer lock the combat camera holds.
   useEffect(() => {
@@ -93,16 +112,28 @@ export function App() {
         event.preventDefault();
         const next = event.code === "Escape" ? false : !useInventoryStore.getState().open;
         setInventoryOpen(next);
+        input.clearHeld();
+        // Closing the inventory hands the camera back. The keypress that closed
+        // it is the user gesture the browser wants, so this is the one moment
+        // re-locking is guaranteed to be allowed.
         if (next && document.pointerLockElement) document.exitPointerLock();
+        else if (!next) requestMouseLook();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setInventoryOpen, visualScenario]);
+  }, [requestMouseLook, setInventoryOpen, visualScenario]);
 
-  const requestMouseLook = () => {
-    if (document.pointerLockElement !== canvasEl.current) canvasEl.current?.requestPointerLock?.();
-  };
+  const [looking, setLooking] = useState(false);
+  useEffect(() => {
+    const sync = () => setLooking(document.pointerLockElement === canvasEl.current);
+    document.addEventListener("pointerlockchange", sync);
+    document.addEventListener("pointerlockerror", sync);
+    return () => {
+      document.removeEventListener("pointerlockchange", sync);
+      document.removeEventListener("pointerlockerror", sync);
+    };
+  }, []);
 
   const begin = () => {
     combatAudio.unlock();
@@ -136,6 +167,11 @@ export function App() {
         <CombatScene visualScenario={visualScenario} />
       </Canvas>
       <Hud visualScenario={visualScenario} />
+      {started && !looking && !inventoryOpen && !visualScenario && (
+        <button className="look-hint" onClick={requestMouseLook}>
+          CLICK TO LOOK
+        </button>
+      )}
       {!visualScenario && <InventoryScreen />}
       {visualScenario && <VisualFrameMarker />}
       {!started && (

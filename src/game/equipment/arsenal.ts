@@ -179,7 +179,11 @@ function buildWeapon(itemId: string, built: BuiltItem): ArsenalWeapon {
     icon: built.icon,
     value: Math.round(weightKg * material.valuePerKg),
     description: material.description,
-    borrowedMoveset: resolveMoveset(profile) !== profile.moveset,
+    // A bow is not missing a moveset: it has a shooting cycle, which is the
+    // whole of what a bow does. Only the melee it borrows for a desperate bash
+    // is stand-in motion, and flagging that would tell a player their bow is
+    // unfinished when it is not.
+    borrowedMoveset: !profile.ranged && resolveMoveset(profile) !== profile.moveset,
   };
 }
 

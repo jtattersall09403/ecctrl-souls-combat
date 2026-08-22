@@ -143,7 +143,23 @@ function createHealingFlask() {
  * procedural posing, foot markers, weapon IK or runtime root-motion stripping
  * (root motion is already resolved in the asset pipeline).
  */
-export function SkyrimFighter({
+/**
+ * A Skyrim actor.
+ *
+ * Keyed by race, deliberately. The animation mixer resolves each clip's target
+ * bones *once*, by name, against whatever was mounted when the action was first
+ * played. Swapping the race body underneath it leaves every one of those
+ * bindings pointing at the previous skeleton, and the new one stands in its
+ * bind pose for the rest of the session. Rebuilding the mixer is the only
+ * honest fix, and remounting is how a React component rebuilds.
+ */
+export function SkyrimFighter(props: SkyrimFighterProps) {
+  return <PosedActor key={props.raceId ?? DEFAULT_RACE} {...props} />;
+}
+
+type SkyrimFighterProps = Parameters<typeof PosedActor>[0];
+
+function PosedActor({
   animationCommandRef,
   equipped,
   equippedRef,

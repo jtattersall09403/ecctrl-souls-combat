@@ -22,6 +22,11 @@ button { color: inherit; font: inherit; }
   100% { opacity: 0; }
 }
 
+/* A way back into mouse-look. Escape is the browser's key, not ours, so there
+   has to be something on screen that takes the camera back. */
+.look-hint { position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%); z-index: 6; padding: 7px 16px; font: 600 12px Cinzel, serif; letter-spacing: .16em; color: #e8dcc0; background: rgba(8,8,8,.72); border: 1px solid #6d5c3a; border-radius: 2px; cursor: pointer; }
+.look-hint:hover { background: rgba(30,26,18,.9); }
+
 /* --- aiming reticle ------------------------------------------------------
    Deliberately small and unlit: it marks where the arrow goes, and nothing
    else. The ticks close onto the dot as the string comes back, which is the

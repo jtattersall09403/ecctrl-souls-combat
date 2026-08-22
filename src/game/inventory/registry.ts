@@ -129,3 +129,20 @@ export function tryItemById(id: string): ItemDefinition | null {
 export function allItemIds(): string[] {
   return [...catalogue.keys()];
 }
+
+/**
+ * The GLB an item renders as, or null for one with no mesh.
+ *
+ * Exists so the game can warm its own cache: equipping something the browser
+ * has never fetched suspends the actor holding it.
+ */
+export function itemAsset(id: string): string | null {
+  const equip = tryItemById(id)?.equip;
+  if (!equip) return null;
+  switch (equip.kind) {
+    case "weapon": return equip.weapon.visual.asset;
+    case "shield": return equip.shield.visual.asset;
+    case "ammunition": return equip.arrow.asset;
+    case "apparel": return equip.armour.asset;
+  }
+}
