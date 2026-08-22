@@ -150,15 +150,6 @@ export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario
         <Bar value={state.playerStamina} max={100} className="stamina" label="Stamina" />
       </section>
 
-      <section className="enemy-vitals" aria-label="Enemy status">
-        {state.enemyEnabled && (
-          <>
-            <span>THE HOLLOW WARDEN</span>
-            <Bar value={state.enemyHealth} max={150} className="enemy-health" label="Enemy health" />
-          </>
-        )}
-      </section>
-
       {state.aiming && <Crosshair drawFraction={state.drawFraction} arrowsLeft={state.arrowsLeft} />}
 
       {state.damagePulse > 0 && <div key={state.damagePulse} className="damage-vignette" aria-hidden="true" />}

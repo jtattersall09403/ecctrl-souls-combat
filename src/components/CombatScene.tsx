@@ -55,6 +55,7 @@ import { hitZoneForBone } from "../game/combat/hitZones";
 import { nearestHurtboxBone, stickArrow } from "../game/combat/stuckArrows";
 import { totalArmourRating } from "../game/equipment/armour";
 import { clearArrows, fireArrow } from "../game/combat/arrowStore";
+import { ActorHealthBar } from "./ActorHealthBar";
 import { Arrows, type ArrowHit } from "./Arrows";
 import { usePlayerRace } from "../game/actors/raceStore";
 import {
@@ -510,6 +511,17 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
     () => wornArmourFor(runtime.archetype.armour),
     [runtime.archetype.armour],
   );
+  // Read from the live fighter each frame rather than through props: health
+  // changes inside the combat update, and routing it through React would cost a
+  // render per hit for a number that is already sitting in a ref.
+  const readEnemyHealth = useCallback(() => ({
+    current: runtime.fighter.health,
+    max: runtime.fighter.maxHealth,
+    // Up while the thing is alive and hostile, down the moment it is not. A
+    // corpse does not need a health bar, and neither does an encounter that has
+    // not started.
+    visible: runtime.fighter.health > 0 && runtime.fighter.state !== "dead",
+  }), [runtime]);
   return (
     <>
       <Ecctrl
@@ -557,6 +569,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
         />
         </Suspense>
         <LockOnReticle visible={reticleVisible} anchor={runtime.targetAnchor} />
+        <ActorHealthBar anchor={runtime.targetAnchor} read={readEnemyHealth} />
       </Ecctrl>
       {HAS_SKELETAL_HURTBOX
         ? <SkeletalHurtbox rig={runtime.hurtbox} name={runtime.hurtboxName} probe={validation} />

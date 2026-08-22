@@ -51,9 +51,6 @@ button { color: inherit; font: inherit; }
 .health span { background: linear-gradient(#9b302b, #621813); }
 .stamina { width: calc(100% - 42px); margin: 5px 0 0 42px; height: 10px; }
 .stamina span { background: linear-gradient(#5d9550, #315d31); }
-.enemy-vitals { position: absolute; bottom: max(42px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(660px, 62vw); text-align: left; }
-.enemy-vitals > span { display: block; margin: 0 0 5px 4px; font: 500 13px Cinzel, serif; letter-spacing: .13em; text-shadow: 0 2px 3px #000; }
-.enemy-health span { background: linear-gradient(#7f2d27, #461412); }
 
 .combat-message { position: absolute; top: 25%; left: 50%; transform: translateX(-50%); font: 600 14px Cinzel, serif; letter-spacing: .16em; color: #d3c6aa; text-shadow: 0 2px 4px #000; white-space: nowrap; }
 .combat-message.major { top: 40%; font-size: clamp(34px, 7vw, 76px); color: #a53c32; letter-spacing: .2em; text-shadow: 0 3px 12px #000; }
@@ -115,7 +112,6 @@ button { color: inherit; font: inherit; }
 
 @media (max-width: 760px) {
   .player-vitals { width: 42vw; min-width: 190px; }
-  .enemy-vitals { width: 48vw; bottom: 18px; }
   .quick-slots { transform: scale(.78); transform-origin: bottom left; bottom: 8px; }
   .help-button { top: 32px; }
   .debug-panel { top: 72px; right: 10px; }
@@ -130,7 +126,6 @@ button { color: inherit; font: inherit; }
 }
 
 @media (orientation: portrait) and (pointer: coarse) {
-  .enemy-vitals { width: 76vw; bottom: 18%; }
   .touch-stick { bottom: 12%; }
   .touch-actions { bottom: 10%; transform: scale(.9); transform-origin: bottom right; }
 }
