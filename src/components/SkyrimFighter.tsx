@@ -35,6 +35,7 @@ import { CHARACTER_BODY_CENTER_HEIGHT, CHARACTER_MODEL_OFFSET } from "../game/ph
 import type { AnimationState, WeaponSocketTransform, WeaponVisualProfile } from "../game/core/types";
 import { VISUAL_PROBE_BONES, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
 import { VISUAL_FRAME_PHASE_PRIORITY } from "../game/validation/visualFrameMarker";
+import { applyAppearance, clearAppearance } from "../game/actors/appearance";
 import { DEFAULT_RACE, RIG_REVISION, raceById, type RaceDefinition, type RaceId } from "../game/actors/races";
 import type { ArmourDefinition } from "../game/equipment/armour";
 import type { MountedArmour } from "../game/actors/armourMounting";
@@ -422,6 +423,13 @@ function PosedActor({
       mixer.timeScale = 1;
     };
   }, [mixer]);
+
+  // Colour the body. Before the enemy tint below, which is a *validation*
+  // overlay on top of whatever the character actually looks like.
+  useLayoutEffect(() => {
+    const touched = applyAppearance(model, race.appearance);
+    return () => clearAppearance(touched);
+  }, [model, race.appearance]);
 
   // Every mesh casts/receives shadows regardless of side. This must not be
   // folded into the enemy-tint effect below (that one is enemy-only), or the

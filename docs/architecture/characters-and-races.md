@@ -28,6 +28,24 @@ here is that a race body records which biped slots each of its meshes occupies
 meshes, textures and a skin tone. It is not a stat block, a moveset or a
 loadout, and no combat, animation or inventory code knows which one is loaded.
 
+Skin and hair colour are a **tint applied at runtime**, not baked art. Every
+humanoid race uses the same body, hands and feet meshes and the same diffuse,
+and differs by head morph, head normal, eye texture, hairstyle and two colours —
+so ten races cost one body's worth of download. `Appearance` in
+`actors/appearance.ts` is the whole of it, and it is deliberately not a race
+type: a character creator moving a slider is the same call.
+
+Runtime rather than baked for two reasons. A slider has to move a colour without
+rebuilding an asset — and a tint node between a texture and base colour is not a
+shape the glTF exporter can write, so a baked one is silently dropped and every
+race ships pure white. That is exactly what happened here.
+
+**Hair is not part of the body.** It is skinned to the head bone, so anything
+measuring the character from its skin will take a braid for a skull. The
+pipeline excludes it from both the height that sets `recommendedScale` and the
+fitted hurtbox: otherwise adding a hairstyle shrinks every actor in the game to
+keep the *hair* at 1.85 m, and a sword can hit someone by hitting their fringe.
+
 Skin colour is a **tint**, not a texture. Every humanoid race in Skyrim uses the
 same body, hands and feet meshes and the same diffuse, and differs by head
 morph, head normal, eye texture and a tint — so the pipeline does the same. That

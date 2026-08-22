@@ -29,6 +29,39 @@ export type RaceDefinition = {
    * silently rots when a body mesh is renamed.
    */
   meshBipedSlots: Readonly<Record<string, readonly number[]>>;
+  /** How this race is coloured. See `Appearance`. */
+  appearance: Appearance;
+};
+
+/**
+ * What makes one character look different from another.
+ *
+ * Deliberately a *tint over shared art* rather than a texture set, which is how
+ * Skyrim itself does it: every humanoid race uses the same body, the same
+ * diffuse, and differs by head morph, eyes, hair and a colour. Ten races that
+ * way cost one body's worth of download instead of ten.
+ *
+ * Applied at runtime, not baked. That is what a character creator needs — a
+ * slider has to move a colour without rebuilding an asset — and it is also the
+ * only way it works at all: a tint node between a texture and base colour is
+ * not a shape the glTF exporter can write, so a baked one silently ships white.
+ */
+export type Appearance = {
+  /** Multiplied over the skin diffuse. */
+  skinTint: readonly [number, number, number];
+  /** Multiplied over hair, horns and beards. */
+  hairTint: readonly [number, number, number];
+  /** Meshes the skin tint applies to. */
+  skinMeshes: readonly string[];
+  /** Meshes the hair tint applies to. */
+  hairMeshes: readonly string[];
+};
+
+const NEUTRAL_APPEARANCE: Appearance = {
+  skinTint: [1, 1, 1],
+  hairTint: [1, 1, 1],
+  skinMeshes: [],
+  hairMeshes: [],
 };
 
 type BuiltRace = {
@@ -37,6 +70,12 @@ type BuiltRace = {
   asset: string;
   sha256: string;
   meshBipedSlots?: Record<string, number[]>;
+  appearance?: {
+    skinTint: [number, number, number];
+    hairTint: [number, number, number];
+    skinMeshes: string[];
+    hairMeshes: string[];
+  };
 };
 
 const BUILT = roster.races as unknown as Record<string, BuiltRace>;
@@ -49,6 +88,7 @@ export const RACES: Readonly<Record<RaceId, RaceDefinition>> = Object.fromEntrie
     asset: race.asset,
     revision: race.sha256.slice(0, 16),
     meshBipedSlots: race.meshBipedSlots ?? {},
+    appearance: race.appearance ?? NEUTRAL_APPEARANCE,
   }]),
 );
 
