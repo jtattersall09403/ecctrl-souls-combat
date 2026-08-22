@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BLOCK_HIT_STOP, BLOCK_RECOIL_DURATION, BLOCK_RECOIL_SPEED, blockRecoilVelocity, resolveGuardImpact } from "./blockReaction";
 import { SHIELD_STABILITY_BAND, WEAPON_STABILITY_BAND } from "../equipment/guard";
-import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+import { STRAIGHT_SWORD } from "../equipment/arsenal";
 
 const WEAPON_GUARD = { stability: 0.55, absorption: { physical: 0.72 } };
 

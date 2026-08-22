@@ -25,6 +25,7 @@ export type WeaponClass =
   | "dagger"
   | "shortSword"
   | "straightSword"
+  | "scimitar"
   | "greatsword"
   | "axe"
   | "greataxe"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveHit } from "./resolveHit";
-import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+import { STRAIGHT_SWORD } from "../equipment/arsenal";
 
 const GUARD = STRAIGHT_SWORD.stats.guard;
 

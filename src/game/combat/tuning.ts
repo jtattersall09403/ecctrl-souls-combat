@@ -2,7 +2,7 @@ import type { CombatAction } from "../core/types";
 import type { Loadout } from "../equipment/types";
 import { clipConfig, clipPlaybackDuration } from "../anim/animationManifest";
 import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
-import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+import { STRAIGHT_SWORD } from "../equipment/arsenal";
 import { BLOCK_RECOIL_DURATION } from "./blockReaction";
 import { COMBAT_TUNING } from "./weapon";
 

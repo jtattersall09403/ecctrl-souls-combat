@@ -1,6 +1,6 @@
 import type { AnimationState } from "../core/types";
 import type { Loadout } from "../equipment/types";
-import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+import { STRAIGHT_SWORD } from "../equipment/arsenal";
 
 /**
  * Enemy archetypes.

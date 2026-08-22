@@ -5,7 +5,7 @@ import type {
   WeaponDefinition,
 } from "../equipment/types";
 import { clipConfig, clipPlaybackSourceSpan } from "../anim/animationManifest";
-import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+import { STRAIGHT_SWORD } from "../equipment/arsenal";
 
 /**
  * Weapon-agnostic moveset rules. Everything here reads an `AttackDefinition`
