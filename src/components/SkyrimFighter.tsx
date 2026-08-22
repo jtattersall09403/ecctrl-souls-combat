@@ -40,6 +40,7 @@ import type { ArmourDefinition } from "../game/equipment/armour";
 import type { MountedArmour } from "../game/actors/armourMounting";
 import { ArmourAttachments } from "./ArmourAttachments";
 import { NockedArrow } from "./NockedArrow";
+import { OffHandItem } from "./OffHandItem";
 import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
 /**
@@ -193,6 +194,7 @@ function PosedActor({
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
+  offHandProfile = null,
   armour = NO_ARMOUR,
   nockedArrow = null,
   firstPerson = false,
@@ -228,6 +230,8 @@ function PosedActor({
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
+  /** Shield or other off-hand item, or null for an empty hand. */
+  offHandProfile?: WeaponVisualProfile | null;
   /** Worn armour. Each piece is skinned to the shared rig and hides what it covers. */
   armour?: readonly ArmourDefinition[];
   /**
@@ -999,6 +1003,11 @@ function PosedActor({
   return (
     <group ref={root} position={[0, modelOffsetY, 0]} scale={CHARACTER_SCALE} dispose={null}>
       <primitive object={model} />
+      {offHandProfile && (
+        <Suspense fallback={null}>
+          <OffHandItem model={model} profile={offHandProfile} sheathed={!equipped} />
+        </Suspense>
+      )}
       {nockedArrow && (
         <Suspense fallback={null}>
           <NockedArrow

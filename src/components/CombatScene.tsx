@@ -13,7 +13,12 @@ import {
 } from "../game/anim/animationManifest";
 import { landingAnimationSpeed, selectLandingAnimation } from "../game/anim/landing";
 import { combatAudio } from "../game/fx/audio";
-import { BLOCK_RECOIL_DURATION, PARRY_RECOIL_SPEED, blockRecoilVelocity } from "../game/combat/blockReaction";
+import {
+  BLOCK_RECOIL_DURATION,
+  PARRY_RECOIL_SPEED,
+  blockRecoilVelocity,
+  resolveGuardImpact,
+} from "../game/combat/blockReaction";
 import { enemyGuardTacticalDuration, resolveEnemyGuardVisualStep } from "../game/combat/enemyGuard";
 import { createHitShake, sampleHitShake, type HitShakeImpulse, type HitShakeKind } from "../game/fx/cameraShake";
 import { isHeavyAttack, resolveHit } from "../game/combat/resolveHit";
@@ -177,6 +182,28 @@ const AIM_PITCH_LIMIT = 1.15;
  * `(+sin yaw, +cos yaw)` behind the player and looks the other way — so the
  * arrow leaves along exactly the axis the crosshair is on.
  */
+/**
+ * Whether a shot came from somewhere the defender's guard is covering.
+ *
+ * A shield covers the front. An arrow arriving from behind meets a back, and a
+ * defender who is fully protected from every direction at once is a defender no
+ * archer can ever flank.
+ */
+function facingTheShot(victim: EnemyRuntime, impactPoint: THREE.Vector3) {
+  const forwardX = Math.sin(victim.fighter.yaw);
+  const forwardZ = Math.cos(victim.fighter.yaw);
+  const toShot = new THREE.Vector2(
+    impactPoint.x - victim.position.x,
+    impactPoint.z - victim.position.z,
+  );
+  if (toShot.lengthSq() < 1e-6) return true;
+  toShot.normalize();
+  return forwardX * toShot.x + forwardZ * toShot.y > GUARD_FACING_COSINE;
+}
+
+/** How far off dead-ahead a guard still covers. About 70 degrees either side. */
+const GUARD_FACING_COSINE = 0.34;
+
 function aimDirectionInto(target: THREE.Vector3, yaw: number, pitch: number) {
   const horizontal = Math.cos(pitch);
   return target.set(
@@ -515,6 +542,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
           weaponProfile={runtime.archetype.loadout.mainHand.visual}
+          offHandProfile={runtime.archetype.loadout.offHand?.visual ?? null}
           armour={enemyArmour}
           raceId={runtime.archetype.race}
           speedMultiplierRef={runtime.animationSpeed}
@@ -979,6 +1007,34 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     });
     const damage = impact.damage * zone.damageMultiplier;
     if (damage <= 0) return;
+
+    // A raised guard stops arrows too. Same rules a sword blow meets — the
+    // guard's stability decides the stamina it costs and its absorption decides
+    // what still gets through — because a shield does not care what hit it.
+    // Only from the front: an arrow into the back finds no shield there.
+    if (f.state === "guard" && facingTheShot(victim, hit.point)) {
+      const guarded = resolveGuardImpact({
+        health: f.health,
+        stamina: f.stamina,
+        incomingDamage: damage,
+        guard: activeGuardProfile(f.archetype.loadout),
+      });
+      f.health = guarded.health;
+      f.stamina = guarded.stamina;
+      f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
+      combatAudio.play("guard");
+      announce(guarded.blocked ? "ARROW BLOCKED" : "GUARD BROKEN", 0.7);
+      if (!guarded.blocked) {
+        setEnemyMode(victim, "parried", f.archetype.loadout.mainHand.animations.guardBreak);
+      }
+      if (f.health <= 0) {
+        clearLockIfTarget(victim);
+        setEnemyMode(victim, "dead", "DEATH");
+        combatAudio.play("death");
+        announce("ENEMY FELLED", ENEMY_FELLED_MESSAGE_DURATION);
+      }
+      return;
+    }
 
     if (struck && hit.object) stickArrow(struck.bone, hit.object, hit.point, hit.quaternion);
     f.health = Math.max(0, f.health - damage);
@@ -2672,6 +2728,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
           weaponProfile={playerWeapon.visual}
+          offHandProfile={playerLoadout.offHand?.visual ?? null}
           armour={playerArmour}
           nockedArrow={playerNockedArrow}
           firstPerson={aimingSnapshot}

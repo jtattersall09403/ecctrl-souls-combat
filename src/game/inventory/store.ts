@@ -86,7 +86,7 @@ const STARTING_ITEMS: readonly (readonly [string, number])[] = [
  * a player picked is still readable on their character.
  */
 const STARTING_WORN: readonly string[] = [
-  STRAIGHT_SWORD.id, "iron-war-arrow", "steel-cuirass", "steel-gauntlets", "steel-boots",
+  STRAIGHT_SWORD.id, "steel-shield", "iron-war-arrow", "steel-cuirass", "steel-gauntlets", "steel-boots",
 ];
 
 function startingInventory(): Inventory {
