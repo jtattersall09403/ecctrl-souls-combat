@@ -36,7 +36,8 @@
     "backstab",
     "backstab-lethal",
     "riposte",
-    "riposte-lethal"
+    "riposte-lethal",
+    "riposte-queued"
   ],
   "utility": [
     "equip-cycle",

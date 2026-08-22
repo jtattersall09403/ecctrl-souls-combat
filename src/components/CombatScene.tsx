@@ -148,6 +148,14 @@ const ARROW_SPAWN_AHEAD_METERS = 0.85;
  * circle-strafe at full pace while drawing has no reason to ever lower it.
  */
 const AIM_MOVE_SPEED = 2.1;
+/**
+ * How long a riposte pressed during the parry stays queued.
+ *
+ * Long enough to cover the rest of the parry clip and the opening of the
+ * reward window; short enough that it cannot resurface as a swing the player
+ * has stopped wanting.
+ */
+const RIPOSTE_QUEUE_WINDOW = 0.7;
 /** Distance out along the aim axis the first-person camera looks. */
 const AIM_LOOK_DISTANCE_METERS = 40;
 /**
@@ -641,6 +649,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const jumpStartTimer = useRef(0);
   const guardHitUntil = useRef(0);
   const nextGuardHitVariant = useRef(0);
+  /** Seconds a light press made during a parry stays live as a riposte. */
+  const riposteQueued = useRef(0);
 
   // The enemy actor list. Combat logic reads and writes these Fighter structs;
   // each has its own physics body and weapon rendered by <EnemyActor>.
@@ -1444,6 +1454,21 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       if (intent.lightPressed) rollAttackQueued.current = "light";
       if (intent.heavyPressed) rollAttackQueued.current = "heavy";
     }
+    // A riposte pressed *during* the parry is kept.
+    //
+    // The whole point of a parry is that you commit to it before you know it
+    // worked, and the reward window opens while the parry clip is still
+    // finishing. Requiring the follow-up press to land in the gap between the
+    // two asks the player to wait out an animation they are already reading as
+    // the opening — which is the wrong instinct to train.
+    if (playerAction.current === "parry" && equipped.current && intent.lightPressed) {
+      riposteQueued.current = RIPOSTE_QUEUE_WINDOW;
+    } else if (playerAction.current !== "parry") {
+      // The clock only runs once the parry is over. A press made early in a
+      // long parry clip should not expire before the animation it was made
+      // during has even finished.
+      riposteQueued.current = Math.max(0, riposteQueued.current - delta);
+    }
     // Tapping light during a backstep buys the dash-in attack: the retreat
     // completes, then the actor closes most of the ground it just gave up and
     // swings. Queued here rather than on release so the input is read during
@@ -1549,7 +1574,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     } else if (canStartAction && intent.heavyPressed && equipped.current && spendStamina(playerWeapon.attacks.heavy.stamina)) {
       startPlayerAction("heavy", "HEAVY");
       combatAudio.play("swing");
-    } else if (canStartAction && intent.lightPressed && equipped.current) {
+    } else if (canStartAction && (intent.lightPressed || riposteQueued.current > 0) && equipped.current) {
       // Riposte the nearest enemy we just parried; otherwise backstab the
       // nearest enemy we are standing behind; otherwise a normal light attack.
       let riposteVictim: EnemyRuntime | null = null;
@@ -1574,6 +1599,12 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           backstabVictim = e;
         }
       }
+      // A queued press only buys the execution it was queued for. Without this
+      // it would also fire an ordinary swing a beat after the parry, which is
+      // not what the player asked for and eats their stamina.
+      if (!intent.lightPressed && !riposteVictim) {
+        riposteQueued.current = 0;
+      } else {
       const victim = riposteVictim ?? backstabVictim;
       const attack = riposteVictim
         ? playerWeapon.attacks.riposte
@@ -1645,6 +1676,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           announce(type === "backstab" ? "BACKSTAB" : "RIPOSTE", 1.4);
         }
         combatAudio.play("swing");
+        riposteQueued.current = 0;
+      }
       }
     } else if (playerAction.current === "idle" && intent.guardHeld && equipped.current && !ranged) {
       startPlayerAction("guard", playerWeapon.animations.guard.enter);

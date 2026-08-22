@@ -1993,5 +1993,133 @@
     },
     "motionChecks": [],
     "transitionMotionChecks": []
+  },
+  "riposte-queued": {
+    "playerActions": [
+      "parry",
+      "riposte"
+    ],
+    "playerAnimations": [
+      "SWORD_IDLE",
+      "PARRY",
+      "PARRY_FOLLOW_THROUGH",
+      "RIPOSTE"
+    ],
+    "enemyActions": [
+      "attack",
+      "parried",
+      "critical",
+      "criticalRecovery",
+      "recover"
+    ],
+    "enemyAnimations": [
+      "SWORD_IDLE",
+      "LIGHT_1",
+      "GUARD_BREAK",
+      "RIPOSTED_HIT1"
+    ],
+    "enemyHealthLessThan": 150,
+    "requiredActionRuns": {
+      "player": [
+        "idle",
+        "parry",
+        "idle",
+        "riposte",
+        "idle"
+      ],
+      "enemy": [
+        "watching",
+        "attack",
+        "parried",
+        "critical",
+        "criticalRecovery",
+        "recover",
+        "watching"
+      ]
+    },
+    "requiredAnimationRuns": {
+      "player": [
+        "SWORD_IDLE",
+        "PARRY",
+        "PARRY_FOLLOW_THROUGH",
+        {
+          "state": "SWORD_IDLE",
+          "minSamples": 1
+        },
+        "RIPOSTE",
+        "SWORD_IDLE"
+      ],
+      "enemy": [
+        "SWORD_IDLE",
+        "LIGHT_1",
+        "GUARD_BREAK",
+        "RIPOSTED_HIT1",
+        "SWORD_IDLE"
+      ]
+    },
+    "evidenceAnimations": {
+      "player": [
+        "PARRY",
+        "PARRY_FOLLOW_THROUGH",
+        "RIPOSTE"
+      ],
+      "enemy": [
+        "LIGHT_1",
+        "GUARD_BREAK",
+        "RIPOSTED_HIT1"
+      ]
+    },
+    "ripostePhases": {
+      "minStableLeadInSeconds": 0.2,
+      "minVictimStartClipTimeSeconds": 0.12,
+      "maxVictimStartClipTimeSeconds": 0.21,
+      "victimReactionAnimation": "RIPOSTED_HIT1",
+      "expectedAttackerContactElapsedSeconds": 0.4,
+      "expectedAttackerContactClipTimeSeconds": 0.5667,
+      "attackerReleaseClipTimeSeconds": 0.7,
+      "expectedAttackerReleaseWallElapsedSeconds": 0.6667,
+      "expectedVictimReleaseClipTimeSeconds": 0.2666,
+      "maxPhaseTimingErrorSeconds": 0.06
+    },
+    "riposteWeaponContact": {
+      "attackerActor": "player",
+      "victimActor": "enemy",
+      "victimHealthField": "enemyHealth",
+      "attackerAnimation": "RIPOSTE",
+      "victimReactionAnimation": "RIPOSTED_HIT1",
+      "maxAttackerBladeDistanceMeters": 0.25,
+      "minRoleSeparationMeters": 0.15,
+      "maxEarlyContactLeadSeconds": 0.08
+    },
+    "transitionMotionChecks": [
+      {
+        "actor": "player",
+        "fromAnimation": "RIPOSTE",
+        "fromOccurrence": 1,
+        "toAnimation": "SWORD_IDLE",
+        "toOccurrence": 3,
+        "transitionWindowSeconds": 0.3,
+        "bones": [
+          "spine2",
+          "head",
+          "upperArmL",
+          "forearmL",
+          "handL",
+          "upperArmR",
+          "forearmR",
+          "handR"
+        ],
+        "maxPelvisRelativeBoneStepMeters": 0.13,
+        "maxBoneAngularStepDegrees": 22,
+        "maxWeaponTipStepMeters": 0.3
+      }
+    ],
+    "criticalRecovery": {
+      "animation": "RIPOSTED_HIT1",
+      "minStartClipTimeSeconds": 0.12,
+      "maxStartClipTimeSeconds": 0.21,
+      "minEndClipTimeSeconds": 1.95,
+      "maxClipStepSeconds": 0.15
+    }
   }
 }

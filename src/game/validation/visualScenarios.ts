@@ -36,6 +36,7 @@ export const VISUAL_SCENARIO_IDS = [
   "bow-shot",
   "bow-partial-draw",
   "bow-aim-tracking",
+  "riposte-queued",
 ] as const;
 
 export type VisualScenarioId = typeof VISUAL_SCENARIO_IDS[number];
@@ -368,6 +369,22 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     player: { position: [0, Y, -1.15], yaw: 0 },
     enemy: { ...FACING_ENEMY, health: 26 },
     cues: [{ from: 0.55, to: 0.64, actions: ["light"] }],
+  },
+  "riposte-queued": {
+    id: "riposte-queued",
+    label: "Riposte requested *during* the parry → still lands when the window opens",
+    warmup: 0.5,
+    duration: 8.8,
+    player: RIPOSTE_REVIEW_PLAYER,
+    enemy: RIPOSTE_REVIEW_ENEMY,
+    cues: [
+      { from: 0.6, to: 0.69, actions: ["parry"] },
+      // Pressed while the parry clip is still running, which is when a player
+      // reading the deflection actually presses it. The queue has to carry it
+      // to the reward window rather than dropping it on the floor.
+      { from: 0.95, to: 1.04, actions: ["light"] },
+    ],
+    enemyCues: [{ at: 0.25, intent: "lightCombo", attack: "light1", comboRemaining: 0 }],
   },
   "guard-break": {
     id: "guard-break",

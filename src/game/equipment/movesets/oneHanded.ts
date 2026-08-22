@@ -33,8 +33,14 @@ const CONTACT = {
   LIGHT_1: { start: 0.365, end: 0.475 },
   LIGHT_2: { start: 0.346, end: 0.423 },
   LIGHT_3: { start: 0.476, end: 0.774 },
-  HEAVY: { start: 0.543, end: 0.6 },
-  HEAVY_2: { start: 0.673, end: 0.767 },
+  // Both heavies had their windows closed roughly two thirds of the way
+  // through the visible sweep, so the back half of a swing passed through a
+  // body without touching it. `scripts/measure-contact-windows.mjs` profiles
+  // the blade tip: HEAVY is still travelling from 0.54 to 0.75 of its clip and
+  // HEAVY_2 from 0.60 to 0.84, and those are the intervals a defender standing
+  // in front of the swing is inside it.
+  HEAVY: { start: 0.543, end: 0.72 },
+  HEAVY_2: { start: 0.673, end: 0.84 },
 } as const;
 
 /**
