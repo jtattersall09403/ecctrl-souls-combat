@@ -26,11 +26,11 @@ is built here; this is only the combat/character proving ground.
 - **Game played from github pages.** The game will be built from github actions and played in the browser at github pages. So the code must work for that context. e.g. make sure animation files that are needed in the game are included.
 - **Semantic animations only.** Game code references states (`IDLE`, `ROLL`,
   `LIGHT_1`, …), never Bethesda filenames. Reskinning a clip is a pipeline rebuild.
-- **Read the animation playbook first.** Before adding, replacing, retiming, or
+- **If you are going to work on animations, read the animation playbook first.** Before adding, replacing, retiming, or
   debugging animation output, follow
   [docs/animation-quality-playbook.md](docs/animation-quality-playbook.md). It
   records the fast pipeline-first workflow and the source/timing/ownership/
-  grounding/transition failure modes already solved here.
+  grounding/transition failure modes already solved here. No need to read it if you aren't going to work on animations though.
 - **Controller-independent.** Combat/input/lock-on/animation depend on
   `PlayerMovementController`, not ecctrl directly (ecctrl is behind `EcctrlAdapter`). This is so we can easily change the controller later if we need to
 - **Don't casually retune gameplay** (damage, stamina, i-frames, hit/parry windows,
@@ -49,6 +49,7 @@ is built here; this is only the combat/character proving ground.
   attention is the scarce resource. Details:
   [docs/validation/animation-recordings.md](docs/validation/animation-recordings.md).
 - **Research known solutions.** We aren't working on something particularly unique or unusual. For any task, decide if it would be worth researching online to find if there are already known-good or proven solutions, or whether the thing you're doing is simple enough that you can just get straight to it. If it would be worth researching, first check the filenames in docs/ and it's sub-folders to see if any other agent has done the research already. If yes, read it, then think about whether further research is necessary or if you now have what you need. If you do need to do further online research, do it, and record key findings in docs/ . Use and create sub-directories as appropriate, and remember that future agents will go off filenames when deciding whether to read a doc you've written.
+**Keep the docs up to date**. When you work, always think about whether something you have changed means the docs should be changed or updated, (including the animation playbook if you've been working on animations). If you're editing a doc, don't think you have to just append - this will lead to context bloat. You can edit, delete and overwrite as well.
 
 ## Assets
 
@@ -74,4 +75,4 @@ npm run visual:record -- locomotion  # recordings for the owner to watch
 
 ## Map
 
-Start at [docs/README.md](docs/README.md). When you work, always think about whether something you have changed means the docs should be changed or updated. If you're editing a doc, don't think you have to just append - this will lead to context bloat. You can edit, delete and overwrite as well.
+Start at [docs/README.md](docs/README.md). Explore filenames and directory names from there.

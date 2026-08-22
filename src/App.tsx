@@ -1,11 +1,13 @@
 import { Canvas, advance } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
 import { CombatScene } from "./components/CombatScene";
+import { InventoryScreen } from "./ui/inventory/InventoryScreen";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
 import { Hud } from "./components/Hud";
 import { VisualFrameMarker } from "./components/VisualFrameMarker";
 import { combatAudio } from "./game/fx/audio";
 import { useGameStore } from "./game/core/store";
+import { useInventoryStore } from "./game/inventory/store";
 import { visualScenarioFromSearch } from "./game/validation/visualScenarios";
 import { VISUAL_FRAME_MARKER_HEIGHT } from "./game/validation/visualFrameMarker";
 
@@ -15,6 +17,8 @@ const RECORDER_POSE_HOLD_MS = 90;
 export function App() {
   const started = useGameStore((state) => state.started);
   const patch = useGameStore((state) => state.patch);
+  const inventoryOpen = useInventoryStore((state) => state.open);
+  const setInventoryOpen = useInventoryStore((state) => state.setOpen);
   const [visualScenario] = useState(() => visualScenarioFromSearch(window.location.search));
   const [visualFast] = useState(() => new URLSearchParams(window.location.search).get("fast") === "1");
   const [visualRecording] = useState(() => new URLSearchParams(window.location.search).get("recording") === "1");
@@ -78,6 +82,22 @@ export function App() {
     };
   }, [visualRecording, visualScenario]);
 
+  // The inventory is a modal screen, so it owns the keyboard while it is up and
+  // releases the pointer lock the combat camera holds.
+  useEffect(() => {
+    if (visualScenario) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code === "KeyI" || (event.code === "Escape" && useInventoryStore.getState().open)) {
+        event.preventDefault();
+        const next = event.code === "Escape" ? false : !useInventoryStore.getState().open;
+        setInventoryOpen(next);
+        if (next && document.pointerLockElement) document.exitPointerLock();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setInventoryOpen, visualScenario]);
+
   const requestMouseLook = () => {
     if (document.pointerLockElement !== canvasEl.current) canvasEl.current?.requestPointerLock?.();
   };
@@ -109,11 +129,12 @@ export function App() {
           gl.shadowMap.type = 2;
           canvasEl.current = gl.domElement;
         }}
-        onPointerDown={() => started && requestMouseLook()}
+        onPointerDown={() => started && !inventoryOpen && requestMouseLook()}
       >
         <CombatScene visualScenario={visualScenario} />
       </Canvas>
       <Hud visualScenario={visualScenario} />
+      {!visualScenario && <InventoryScreen />}
       {visualScenario && <VisualFrameMarker />}
       {!started && (
         <section className="title-screen">

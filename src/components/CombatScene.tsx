@@ -25,9 +25,9 @@ import {
   ENEMY_SHARED_DURATIONS,
   MAX_ENEMIES,
   PLAYER_DODGE_SPEED,
-  PLAYER_LOADOUT,
   RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
+import { useEquippedLoadout } from "../game/inventory/store";
 import {
   DEFAULT_ENEMY_ARCHETYPE,
   type EnemyArchetype,
@@ -451,10 +451,12 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
 }
 
 function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
-  // The player's equipped weapon. Every moveset, animation and socket the
-  // player uses comes from here, so swapping the loadout swaps all of them.
-  const playerWeapon = PLAYER_LOADOUT.mainHand;
-  const playerGuard = useMemo(() => activeGuardProfile(PLAYER_LOADOUT), []);
+  // The player's equipped kit. Every moveset, animation and socket the player
+  // uses comes from here, so equipping something in the inventory swaps all of
+  // them — including what a raised guard is made of.
+  const playerLoadout = useEquippedLoadout();
+  const playerWeapon = playerLoadout.mainHand;
+  const playerGuard = useMemo(() => activeGuardProfile(playerLoadout), [playerLoadout]);
   const playerStart = useMemo(
     () => visualScenario ? new THREE.Vector3(...visualScenario.player.position) : DEFAULT_PLAYER_START.clone(),
     [visualScenario],

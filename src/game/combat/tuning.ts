@@ -1,5 +1,4 @@
 import type { CombatAction } from "../core/types";
-import type { Loadout } from "../equipment/types";
 import { clipConfig, clipPlaybackDuration } from "../anim/animationManifest";
 import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
 import { STRAIGHT_SWORD } from "../equipment/arsenal";
@@ -8,9 +7,6 @@ import { COMBAT_TUNING } from "./weapon";
 
 export const PLAYER_MAX_HEALTH = COMBAT_TUNING.maxHealth;
 export const PLAYER_ESTUS = 3;
-
-/** The player's starting kit. The off hand is the shield slot, still empty. */
-export const PLAYER_LOADOUT: Loadout = { mainHand: STRAIGHT_SWORD, offHand: null };
 
 /**
  * How long a broken guard leaves an actor open.

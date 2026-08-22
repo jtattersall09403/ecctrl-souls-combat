@@ -1,6 +1,7 @@
 import manifest from "./generated/arsenal.items.json";
 import { defineWeapon } from "./defineWeapon";
 import { MATERIAL_PROFILES, scaleGuardValue, type MaterialId } from "./materials";
+import { SHIELD_STABILITY_BAND, WEAPON_STABILITY_BAND, clampToBand } from "./guard";
 import { WEAPON_CLASSES, resolveMoveset, scaleMoveset } from "./weaponClasses";
 import { REFERENCE_MOVESET, ONE_HANDED_ANIMATIONS } from "./movesets/oneHanded";
 import type {
@@ -123,7 +124,10 @@ function buildWeapon(itemId: string, built: BuiltItem): ArsenalWeapon {
       scaling: { strength: 0.35, agility: 0.45 },
       occupiesOffHand: profile.twoHanded,
       guard: {
-        stability: scaleGuardValue(profile.stability, material.guardScale),
+        stability: clampToBand(
+          scaleGuardValue(profile.stability, material.guardScale),
+          WEAPON_STABILITY_BAND,
+        ),
         absorption: {
           physical: scaleGuardValue(profile.physicalAbsorption, material.guardScale),
         } satisfies Absorption,
@@ -164,7 +168,7 @@ function buildShield(itemId: string, built: BuiltItem): ArsenalShield {
       guard: {
         // A shield is the reason the stability stat exists: it is a braced
         // face rather than an edge, so it sits above every weapon's band.
-        stability: scaleGuardValue(0.72, material.guardScale),
+        stability: clampToBand(scaleGuardValue(0.72, material.guardScale), SHIELD_STABILITY_BAND),
         absorption: { physical: scaleGuardValue(0.96, material.guardScale) },
       },
     },
