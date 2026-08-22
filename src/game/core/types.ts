@@ -1,7 +1,17 @@
+import type { BowPhase } from "../combat/bowShot";
+
 export type Vec2 = { x: number; y: number };
 
 export type CombatAction =
   | "idle"
+  /** Bow raised, first person, string at rest. */
+  | "aim"
+  /** Pulling to full draw. */
+  | "draw"
+  /** Held at draw, bleeding stamina. */
+  | "drawn"
+  /** Loosed; the follow-through before the bow can be drawn again. */
+  | "loose"
   | "light1"
   | "light2"
   | "light3"
@@ -62,126 +72,35 @@ export type AnimationState =
   | "HIT_HEAVY"
   | "RECOIL"
   | "GUARD_BREAK"
-  | "DEATH";
-
-export type AttackDefinition = {
-  id: "light1" | "light2" | "light3" | "heavy" | "heavy2" | "riposte" | "backstab";
-  animation: AnimationState;
-  damage: number;
-  stamina: number;
-  windup: number;
-  active: number;
-  recovery: number;
-  range: number;
-  arc: number;
-  lunge: number;
-  hitStop: number;
-};
-
-export type WeaponSocketTransform = {
-  socket: string;
-  localPosition: readonly [number, number, number];
-  /** Quaternion XYZW; stored once per weapon/socket, never per animation. */
-  localRotation: readonly [number, number, number, number];
-  localScale: number;
-};
-
-export type WeaponVisualProfile = {
-  asset: string;
-  held: WeaponSocketTransform;
-  sheathed: WeaponSocketTransform;
-};
-
-export type PairedCriticalProfile = {
-  attackerAction: AnimationState;
-  victimAction: AnimationState;
-  /**
-   * Short production-time blend used both to ease the actors onto their
-   * authored paired anchor and to blend into the opening poses. Instant body
-   * warps are especially visible when a backstab begins near, but not exactly
-   * on, the source pair separation.
-   */
-  entryBlendDuration: number;
-  /**
-   * Attacker-clock progress at which the victim reaction begins. A true paired
-   * clip uses 0; an event-driven execution can hold a vulnerable pose until the
-   * authored impact event and then start its independent reaction clock.
-  */
-  victimActionStartProgress: number;
-  /** Source time at which the selected victim action begins. */
-  victimActionStartAt: number;
-  victimLeadIn?: {
-    action: AnimationState;
-    /** Gameplay-clock seconds at which to freeze the vulnerable lead-in pose. */
-    holdTime: number;
-  };
-  /**
-   * Self-timed victim outcome entered after the profile's authored handoff.
-   * The action owns the complete reaction-to-ready motion; `startAt` is
-   * explicit per critical. If the contact/paired reaction is already playing
-   * this same action, the FSM changes ownership without restarting it.
-   */
-  victimRecovery: {
-    action: AnimationState;
-    /** Gameplay-clock seconds within `action` at the outcome handoff. */
-    startAt: number;
-    /** Transition-specific blend; omitted to use the action manifest default. */
-    crossFadeDuration?: number;
-  };
-  /** Prone-ending variant used when critical damage is lethal. */
-  victimDeath: {
-    action: AnimationState;
-    /** Gameplay-clock seconds within `action` at the outcome handoff. */
-    startAt: number;
-    /** Transition-specific blend; omitted to use the action manifest default. */
-    crossFadeDuration?: number;
-  };
-  /**
-   * Attacker-clock progress at which the victim leaves its paired/reaction
-   * action for the configured recovery or death outcome. This is distinct
-   * from `releaseProgress`: controller alignment can end at blade withdrawal
-   * while the victim finishes the authored paired recoil before falling.
-   */
-  victimOutcomeProgress: number;
-  startingSeparation: number;
-  /** Victim-relative attacker yaw: 0 behind/same-facing, PI in front/opposed. */
-  relativeFacing: number;
-  alignmentAnchor: "victim";
-  damageProgress: number;
-  releaseProgress: number;
-  rootMotionPolicy: "controller-aligned-strip-horizontal";
-};
-
-export type WeaponAnimationProfile = {
-  combatIdle: AnimationState;
-  sprintOverride?: AnimationState;
-  guard: {
-    enter: AnimationState;
-    loop: AnimationState;
-    hitVariants: readonly AnimationState[];
-  };
-  parry: {
-    intro: AnimationState;
-    followThrough: AnimationState;
-  };
-  lightAttacks: readonly [AnimationState, AnimationState, AnimationState];
-  heavyAttacks: readonly [AnimationState, AnimationState];
-  guardBreak: AnimationState;
-  riposte: PairedCriticalProfile;
-  backstab: PairedCriticalProfile;
-  equip: AnimationState;
-  unequip: AnimationState;
-};
-
-export type WeaponDefinition = {
-  id: string;
-  label: string;
-  attacks: Record<AttackDefinition["id"], AttackDefinition>;
-  animations: WeaponAnimationProfile;
-  visual: WeaponVisualProfile;
-};
+  | "DEATH"
+  | "BOW_IDLE"
+  | "BOW_WALK"
+  | "BOW_WALK_BACK"
+  | "BOW_STRAFE_LEFT"
+  | "BOW_STRAFE_RIGHT"
+  | "BOW_RUN"
+  | "BOW_DRAW"
+  | "BOW_DRAWN"
+  | "BOW_RELEASE"
+  | "BOW_EQUIP"
+  | "BOW_UNEQUIP";
 
 export type CombatPhase = "windup" | "active" | "recovery" | "none";
+
+// Equipment (weapons, shields, movesets, sockets) lives in
+// `src/game/equipment/`: item data is its own archive, not part of the core
+// session vocabulary. Re-exported here only for the few consumers that still
+// speak in terms of a single equipped weapon.
+export type {
+  AttackDefinition,
+  AttackId,
+  Loadout,
+  PairedCriticalProfile,
+  WeaponAnimationProfile,
+  WeaponDefinition,
+  WeaponSocketTransform,
+  WeaponVisualProfile,
+} from "../equipment/types";
 
 export type GameSnapshot = {
   playerHealth: number;
@@ -202,4 +121,12 @@ export type GameSnapshot = {
   enemyCount: number;
   showHitboxes: boolean;
   resetToken: number;
+  /** A bow is raised: the view is first person and the crosshair is up. */
+  aiming: boolean;
+  /** Where in the shooting cycle the bow is, for the view to follow. */
+  bowPhase: BowPhase;
+  /** 0-1 of full draw, for the crosshair to open on. */
+  drawFraction: number;
+  /** Arrows of the equipped kind still in the quiver. */
+  arrowsLeft: number;
 };

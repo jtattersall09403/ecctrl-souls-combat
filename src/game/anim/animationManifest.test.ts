@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GUARD_BREAK_STUN_DURATION, RIPOSTE_WINDOW } from "../combat/tuning";
 import {
   clipConfig,
   clipPlaybackDuration,
@@ -37,10 +38,16 @@ describe("generated animation playback contract", () => {
     expect(transitionCrossFadeDuration("JUMP_IDLE", "JUMP_START", null)).toBeCloseTo(0.03, 4);
   });
 
-  it("fits the standing guard break to its posture window", () => {
+  it("plays the standing guard break at its authored speed", () => {
     const config = clipConfig("GUARD_BREAK");
     expect(config.provenance).toContain("standing recoil");
-    expect((config.sourceDuration ?? 0) / config.playbackRate).toBeCloseTo(1.75, 3);
+    // A broken guard is the punish window, so the stagger runs at native speed
+    // rather than being compressed into a shorter one.
+    expect(config.playbackRate).toBe(1);
+    expect((config.sourceDuration ?? 0) / config.playbackRate).toBeCloseTo(2.4667, 3);
+    expect(GUARD_BREAK_STUN_DURATION).toBeCloseTo(2.4667, 3);
+    expect(RIPOSTE_WINDOW).toBeLessThan(GUARD_BREAK_STUN_DURATION);
+    expect(RIPOSTE_WINDOW).toBeGreaterThan(1.75);
   });
 
   it("fits the complete grounded retreat cycle exactly to the backstep lock", () => {

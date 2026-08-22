@@ -51,7 +51,7 @@ const animationExclusions = JSON.parse(await readFile(
   "utf8",
 ));
 const animationManifest = JSON.parse(await readFile(
-  new URL("../src/game/anim/character-dunmer-combat.animations.json", import.meta.url),
+  new URL("../src/game/anim/generated/rig-skyrim-humanoid.animations.json", import.meta.url),
   "utf8",
 ));
 const ALL_SCENARIOS = Object.keys(expectations);

@@ -36,11 +36,17 @@
     "backstab",
     "backstab-lethal",
     "riposte",
-    "riposte-lethal"
+    "riposte-lethal",
+    "riposte-queued"
   ],
   "utility": [
     "equip-cycle",
     "heal",
     "enemy-utility"
+  ],
+  "ranged": [
+    "bow-shot",
+    "bow-partial-draw",
+    "bow-aim-tracking"
   ]
 }

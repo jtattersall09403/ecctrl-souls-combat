@@ -8,8 +8,18 @@ export type PlayerIntent = {
   move: Vec2;
   camera: Vec2;
   lightPressed: boolean;
+  lightHeld: boolean;
   heavyPressed: boolean;
   guardHeld: boolean;
+  /**
+   * Lower a raised bow.
+   *
+   * The guard button, deliberately: a bow cannot block, so the input is free
+   * while aiming, and "the button that puts something between you and the world"
+   * already means the right thing on a keyboard, a pad and a touch screen alike
+   * without teaching the player a fourth binding.
+   */
+  aimExitPressed: boolean;
   parryPressed: boolean;
   dodgePressed: boolean;
   dodgeHeld: boolean;
@@ -28,8 +38,10 @@ export function inputToIntent(source: InputController): PlayerIntent {
     move: { x: source.movement.x, y: source.movement.y },
     camera: { x: source.camera.x, y: source.camera.y },
     lightPressed: source.pressed("light"),
+    lightHeld: source.held("light"),
     heavyPressed: source.pressed("heavy"),
     guardHeld: source.held("guard"),
+    aimExitPressed: source.pressed("guard"),
     parryPressed: source.pressed("parry"),
     dodgePressed: source.pressed("dodge"),
     dodgeHeld: source.held("dodge"),

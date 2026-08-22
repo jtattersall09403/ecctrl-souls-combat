@@ -64,9 +64,13 @@ describe("baked visible-surface support", () => {
       .toBeCloseTo(0.004);
   });
 
-  it("uses marker proxies only for material ground-bound crossfades", () => {
+  it("uses marker proxies from the first frame of a ground-bound crossfade", () => {
     expect(usesCrossFadeSoleProxy("penetration", "penetration", 0.8, 0.2)).toBe(true);
-    expect(usesCrossFadeSoleProxy("penetration", "penetration", 0.98, 0.02)).toBe(false);
+    // Engaging partway through a blend discovers a fully-formed penetration and
+    // steps the correction in one frame, which is a visible hop. It must be
+    // live while the incoming clip is still a rounding error.
+    expect(usesCrossFadeSoleProxy("penetration", "penetration", 0.98, 0.02)).toBe(true);
+    expect(usesCrossFadeSoleProxy("penetration", "penetration", 1, 0)).toBe(false);
     expect(usesCrossFadeSoleProxy("floor-contact", "airborne", 0.8, 0.2)).toBe(true);
     expect(usesCrossFadeSoleProxy("floor-contact", "penetration", 0.8, 0.2)).toBe(true);
     expect(usesCrossFadeSoleProxy("penetration", "floor-contact", 0.8, 0.2)).toBe(true);

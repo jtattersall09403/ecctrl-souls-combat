@@ -229,6 +229,9 @@ function createActorSummary(actor, frames) {
   const animationSamples = {};
   let minMeshGap = Number.POSITIVE_INFINITY;
   let minMeshGapTime = null;
+  // Which mesh was the lowest one. With worn armour an actor has a dozen
+  // meshes, and "something penetrated the floor" is not a diagnosis.
+  let minMeshGapMesh = null;
   let minGroundCorrection = Number.POSITIVE_INFINITY;
   let maxGroundCorrection = Number.NEGATIVE_INFINITY;
   let minNonFloorGroundCorrection = Number.POSITIVE_INFINITY;
@@ -277,6 +280,14 @@ function createActorSummary(actor, frames) {
     if (finite(sample.meshGap) && sample.meshGap < minMeshGap) {
       minMeshGap = sample.meshGap;
       minMeshGapTime = frame.time;
+      minMeshGapMesh = null;
+      let lowest = Number.POSITIVE_INFINITY;
+      for (const [name, bounds] of Object.entries(sample.meshBounds ?? {})) {
+        if (bounds?.min?.[1] < lowest) {
+          lowest = bounds.min[1];
+          minMeshGapMesh = name;
+        }
+      }
     }
     if (finite(sample.groundCorrectionY)) {
       minGroundCorrection = Math.min(minGroundCorrection, sample.groundCorrectionY);
@@ -398,6 +409,7 @@ function createActorSummary(actor, frames) {
     maxWorldUpTiltTime: maxWorldUpTiltTime === null ? null : round(maxWorldUpTiltTime, 3),
     minMeshGapMeters: round(minMeshGap),
     minMeshGapTime: minMeshGapTime === null ? null : round(minMeshGapTime, 3),
+    minMeshGapMesh,
     minGroundCorrectionMeters: round(minGroundCorrection),
     maxGroundCorrectionMeters: round(maxGroundCorrection),
     minNonFloorGroundCorrectionMeters: finite(minNonFloorGroundCorrection)
@@ -742,6 +754,9 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
   if (visualFrames.length < 3) failures.push(`${scenario}: render-pose probe published fewer than 3 frames`);
 
   const limits = { ...DEFAULT_GROUNDING_LIMITS, ...(expected.groundingLimits ?? {}) };
+  // Per-scenario motion bounds, for the few scenes whose fastest authored
+  // action legitimately exceeds the suite-wide default.
+  const motionLimits = { ...DEFAULT_MOTION_LIMITS, ...(expected.motionLimits ?? {}) };
   const actors = {};
   for (const actor of ["player", "enemy"]) {
     const frames = actorFrames(visualFrames, actor);
@@ -774,7 +789,9 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
       failures.push(`${scenario}: ${actor} deformed-mesh support gap was not measurable`);
     } else if (summary.minMeshGapMeters < -limits.maxMeshPenetrationMeters) {
       failures.push(
-        `${scenario}: ${actor} mesh penetrated support by ${round(-summary.minMeshGapMeters)}m at ${summary.minMeshGapTime}s (limit ${limits.maxMeshPenetrationMeters}m)`,
+        `${scenario}: ${actor} mesh penetrated support by ${round(-summary.minMeshGapMeters)}m at ${summary.minMeshGapTime}s`
+        + `${summary.minMeshGapMesh ? ` (deepest mesh: ${summary.minMeshGapMesh})` : ""}`
+        + ` (limit ${limits.maxMeshPenetrationMeters}m)`,
       );
     }
     if (!finite(summary.minGroundCorrectionMeters) || !finite(summary.maxGroundCorrectionMeters)) {
@@ -819,19 +836,19 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
     exceeds(
       failures,
       summary.maxGroundCorrectionStepMeters,
-      DEFAULT_MOTION_LIMITS.maxRootCorrectionStepMeters,
+      motionLimits.maxRootCorrectionStepMeters,
       `${scenario}: ${actor} per-frame root-correction step`,
     );
     exceeds(
       failures,
       summary.maxBoneAngularStepDegrees,
-      DEFAULT_MOTION_LIMITS.maxBoneAngularStepDegrees,
+      motionLimits.maxBoneAngularStepDegrees,
       `${scenario}: ${actor} per-frame bone rotation`,
     );
     exceeds(
       failures,
       summary.maxBonePositionStepMeters,
-      DEFAULT_MOTION_LIMITS.maxBonePositionStepMeters,
+      motionLimits.maxBonePositionStepMeters,
       `${scenario}: ${actor} per-frame bone travel`,
     );
   }

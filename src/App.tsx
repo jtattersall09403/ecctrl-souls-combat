@@ -1,11 +1,16 @@
 import { Canvas, advance } from "@react-three/fiber";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BASE_FIELD_OF_VIEW } from "./game/physics/characterPhysics";
 import { CombatScene } from "./components/CombatScene";
+import { input } from "./game/io/input";
+import { InventoryScreen } from "./ui/inventory/InventoryScreen";
+import { RacePicker } from "./ui/RacePicker";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
 import { Hud } from "./components/Hud";
 import { VisualFrameMarker } from "./components/VisualFrameMarker";
 import { combatAudio } from "./game/fx/audio";
 import { useGameStore } from "./game/core/store";
+import { useInventoryStore } from "./game/inventory/store";
 import { visualScenarioFromSearch } from "./game/validation/visualScenarios";
 import { VISUAL_FRAME_MARKER_HEIGHT } from "./game/validation/visualFrameMarker";
 
@@ -15,6 +20,8 @@ const RECORDER_POSE_HOLD_MS = 90;
 export function App() {
   const started = useGameStore((state) => state.started);
   const patch = useGameStore((state) => state.patch);
+  const inventoryOpen = useInventoryStore((state) => state.open);
+  const setInventoryOpen = useInventoryStore((state) => state.setOpen);
   const [visualScenario] = useState(() => visualScenarioFromSearch(window.location.search));
   const [visualFast] = useState(() => new URLSearchParams(window.location.search).get("fast") === "1");
   const [visualRecording] = useState(() => new URLSearchParams(window.location.search).get("recording") === "1");
@@ -78,9 +85,55 @@ export function App() {
     };
   }, [visualRecording, visualScenario]);
 
-  const requestMouseLook = () => {
-    if (document.pointerLockElement !== canvasEl.current) canvasEl.current?.requestPointerLock?.();
-  };
+  /**
+   * Take the pointer back for mouse-look.
+   *
+   * The rejection is swallowed on purpose. Chrome refuses to re-lock for a
+   * second or so after the *user* pressed Escape to get out, which is a
+   * deliberate anti-trap measure; the next click succeeds. Letting that reject
+   * unhandled fills the console with something the player has already fixed by
+   * clicking again.
+   */
+  const requestMouseLook = useCallback(() => {
+    const element = canvasEl.current;
+    if (!element || document.pointerLockElement === element) return;
+    const pending = element.requestPointerLock?.() as unknown;
+    if (pending && typeof (pending as Promise<void>).catch === "function") {
+      (pending as Promise<void>).catch(() => undefined);
+    }
+  }, []);
+
+  // The inventory is a modal screen, so it owns the keyboard while it is up and
+  // releases the pointer lock the combat camera holds.
+  useEffect(() => {
+    if (visualScenario) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code === "KeyI" || (event.code === "Escape" && useInventoryStore.getState().open)) {
+        event.preventDefault();
+        const next = event.code === "Escape" ? false : !useInventoryStore.getState().open;
+        setInventoryOpen(next);
+        input.clearHeld();
+        // Closing the inventory hands the camera back. The keypress that closed
+        // it is the user gesture the browser wants, so this is the one moment
+        // re-locking is guaranteed to be allowed.
+        if (next && document.pointerLockElement) document.exitPointerLock();
+        else if (!next) requestMouseLook();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [requestMouseLook, setInventoryOpen, visualScenario]);
+
+  const [looking, setLooking] = useState(false);
+  useEffect(() => {
+    const sync = () => setLooking(document.pointerLockElement === canvasEl.current);
+    document.addEventListener("pointerlockchange", sync);
+    document.addEventListener("pointerlockerror", sync);
+    return () => {
+      document.removeEventListener("pointerlockchange", sync);
+      document.removeEventListener("pointerlockerror", sync);
+    };
+  }, []);
 
   const begin = () => {
     combatAudio.unlock();
@@ -102,18 +155,24 @@ export function App() {
         frameloop={visualScenario ? "never" : "always"}
         shadows={!visualFast}
         dpr={[1, quality]}
-        camera={{ fov: 48, near: 0.1, far: 70, position: [0, 3.5, 10] }}
+        camera={{ fov: BASE_FIELD_OF_VIEW, near: 0.1, far: 70, position: [0, 3.5, 10] }}
         gl={{ antialias: !visualFast, powerPreference: "high-performance", alpha: false }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = "srgb";
           gl.shadowMap.type = 2;
           canvasEl.current = gl.domElement;
         }}
-        onPointerDown={() => started && requestMouseLook()}
+        onPointerDown={() => started && !inventoryOpen && requestMouseLook()}
       >
         <CombatScene visualScenario={visualScenario} />
       </Canvas>
       <Hud visualScenario={visualScenario} />
+      {started && !looking && !inventoryOpen && !visualScenario && (
+        <button className="look-hint" onClick={requestMouseLook}>
+          CLICK TO LOOK
+        </button>
+      )}
+      {!visualScenario && <InventoryScreen />}
       {visualScenario && <VisualFrameMarker />}
       {!started && (
         <section className="title-screen">
@@ -121,6 +180,7 @@ export function App() {
           <p>AN ECCTRL COMBAT PROTOTYPE</p>
           <h1>ASHEN RING</h1>
           <p className="subtitle">One knight. One blade. One lesson.</p>
+          <RacePicker />
           <button onClick={begin}>ENTER THE ARENA</button>
           <FullscreenButton className="fullscreen-entry" />
           <small>Desktop · touch · GameSir X2s</small>

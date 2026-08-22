@@ -1,16 +1,32 @@
-import type { AttackDefinition } from "../core/types";
+import type { AttackDefinition, GuardProfile } from "../equipment/types";
+import { damageAfterArmour } from "./armourMitigation";
 import { BLOCK_HIT_STOP, resolveGuardImpact } from "./blockReaction";
-import { COMBAT_TUNING } from "./weapon";
 
 export type HitContext = {
   attack: AttackDefinition;
-  /** Defender is holding guard with a weapon and the hit is not an execution. */
-  guarding: boolean;
+  /**
+   * The defender's active guard, or null when they are not guarding. Carrying
+   * the profile rather than a boolean is what lets a shield block differently
+   * from a weapon without a second code path.
+   */
+  guard: GuardProfile | null;
   /** Defender is inside dodge/roll invulnerability frames. */
   iframe: boolean;
   execution: "riposte" | "backstab" | null;
   /** Health lost when a guard is broken through. Enemy guard-break deals none. */
   guardBreakDamage?: number;
+  /**
+   * The defender's total worn armour rating. Reduces damage that actually
+   * lands; a blocked hit is already resolved by the guard, and armour does not
+   * get a second say over the same blow.
+   */
+  armourRating?: number;
+  /**
+   * Multiplier for where the blow landed. 1 is an ordinary body hit. Passed in
+   * rather than derived, so the same rule serves an arrow that knows which bone
+   * it struck and a sword swing that does not.
+   */
+  hitZoneMultiplier?: number;
 };
 
 export type HitResult =
@@ -38,13 +54,12 @@ export function resolveHit(
 
   const heavy = isHeavyAttack(ctx.attack);
 
-  if (ctx.guarding && !ctx.execution) {
+  if (ctx.guard && !ctx.execution) {
     const impact = resolveGuardImpact({
       health: defenderHealth,
       stamina: defenderStamina,
       incomingDamage: ctx.attack.damage,
-      stability: COMBAT_TUNING.guardStability,
-      damageReduction: COMBAT_TUNING.guardDamageReduction,
+      guard: ctx.guard,
       guardBreakDamage: ctx.guardBreakDamage ?? 0,
     });
     if (impact.blocked) {
@@ -59,7 +74,11 @@ export function resolveHit(
     };
   }
 
-  const health = Math.max(0, defenderHealth - ctx.attack.damage);
+  const landed = damageAfterArmour(
+    ctx.attack.damage * (ctx.hitZoneMultiplier ?? 1),
+    ctx.armourRating ?? 0,
+  );
+  const health = Math.max(0, defenderHealth - landed);
   const hitStop = ctx.execution ? ctx.attack.hitStop ?? 0.13 : ctx.attack.hitStop ?? 0.055;
   if (ctx.execution) {
     return { kind: "execution", health, killed: health <= 0, hitStop };

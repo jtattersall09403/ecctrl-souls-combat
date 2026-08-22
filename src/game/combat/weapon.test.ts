@@ -3,6 +3,7 @@ import { clipConfig, clipPlaybackDuration } from "../anim/animationManifest";
 import { ACTION_DURATIONS } from "./tuning";
 import {
   COMBAT_TUNING,
+  attackDuration,
   CRITICAL_ATTACK_DAMAGE,
   CRITICAL_DAMAGE_MULTIPLIER,
   STRAIGHT_SWORD,
@@ -32,18 +33,19 @@ describe("straight sword moveset", () => {
     expect(phaseAt(10, attack)).toBe("none");
   });
 
-  it("moves heavy swing frames into the active window and ends before recovery", () => {
+  it("keeps the heavy hitbox around its measured blade sweep, not its whole clip", () => {
     const { heavy, light1 } = STRAIGHT_SWORD.attacks;
     const heavyTotal = heavy.windup + heavy.active + heavy.recovery;
-    expect(isWeaponHitboxActive(heavy.windup + 0.01, heavy)).toBe(true);
-    // The production-rendered blade reaches the target at source ~0.93s.
-    expect(isWeaponHitboxActive(0.933, heavy)).toBe(true);
-    // Keep one 30Hz physics callback after the first rendered overlap.
-    expect(isWeaponHitboxActive(0.967, heavy)).toBe(true);
-    expect(isWeaponHitboxActive(0.981, heavy)).toBe(false);
+    // Measured contact on the corrected-grip production rig is source
+    // 0.633-0.700s; the window brackets it by one and a half physics steps.
+    expect(isWeaponHitboxActive(0.633, heavy)).toBe(true);
+    expect(isWeaponHitboxActive(0.7, heavy)).toBe(true);
+    expect(isWeaponHitboxActive(heavy.windup - 0.01, heavy)).toBe(false);
     expect(isWeaponHitboxActive(heavy.windup + heavy.active + 0.01, heavy)).toBe(false);
     expect(isWeaponHitboxActive(light1.windup + light1.active + 0.01, light1)).toBe(false);
+    // Total commitment, chain branch point and damage are all unchanged.
     expect(heavyTotal).toBeCloseTo(1.35, 5);
+    expect(comboTransitionTime(heavy)).toBeCloseTo(0.98, 4);
   });
 
   it("has finite roll and parry windows", () => {
@@ -87,33 +89,43 @@ describe("straight sword moveset", () => {
       phaseAt(comboTransitionTime(light3) + 0.01, light3),
     ];
     expect(phaseSequence).toEqual(["windup", "active", "windup", "active", "windup", "active", "recovery"]);
-    expect(phaseAt(comboTransitionTime(light1) - 0.001, light1)).toBe("active");
+    // The chain branches well after the blade stops cutting, so the frame
+    // before the branch is recovery — and input is still accepted there.
+    expect(phaseAt(comboTransitionTime(light1) - 0.001, light1)).toBe("recovery");
+    expect(comboQueueOpen(comboTransitionTime(light1) - 0.001, comboTransitionTime(light1) - 0.02, light1)).toBe(true);
     expect(comboEntryTime(light2)).toBe(0);
     expect(phaseAt(comboEntryTime(light2), light2)).toBe("windup");
   });
 
-  it("keeps the full authored light swing active until recovery begins", () => {
-    for (const attack of [
-      STRAIGHT_SWORD.attacks.light1,
-      STRAIGHT_SWORD.attacks.light2,
-      STRAIGHT_SWORD.attacks.light3,
-    ]) {
-      expect(isWeaponHitboxActive(attack.windup, attack)).toBe(true);
-      expect(isWeaponHitboxActive(comboTransitionTime(attack) - 0.001, attack)).toBe(true);
+  it("brackets each light swing's measured contact and nothing else", () => {
+    // Source-time contact intervals measured on the production GLB.
+    const measured = {
+      light1: [0.475, 0.617],
+      light2: [0.45, 0.55],
+      light3: [0.658, 0.983],
+    } as const;
+    for (const [id, [start, end]] of Object.entries(measured) as [
+      "light1" | "light2" | "light3", readonly [number, number],
+    ][]) {
+      const attack = STRAIGHT_SWORD.attacks[id];
+      expect(isWeaponHitboxActive(start, attack), `${id} misses contact start`).toBe(true);
+      expect(isWeaponHitboxActive(end, attack), `${id} misses contact end`).toBe(true);
+      // Neither the wind-up nor the follow-through may connect.
+      expect(isWeaponHitboxActive(0, attack)).toBe(false);
+      expect(isWeaponHitboxActive(attackDuration(attack) - 0.01, attack)).toBe(false);
       expect(isWeaponHitboxActive(comboTransitionTime(attack), attack)).toBe(false);
     }
   });
 
-  it("gives the light chain a brief windup/recovery and an active window spanning the rest of the clip", () => {
-    for (const attack of [
-      STRAIGHT_SWORD.attacks.light1,
-      STRAIGHT_SWORD.attacks.light2,
-      STRAIGHT_SWORD.attacks.light3,
-    ]) {
-      const total = attack.windup + attack.active + attack.recovery;
-      expect(attack.active / total).toBeGreaterThan(0.65);
-      expect(attack.windup).toBeLessThan(attack.active);
-      expect(attack.recovery).toBeLessThan(attack.active);
+  it("keeps every contact window a minority of its action, and branches later", () => {
+    for (const attack of Object.values(STRAIGHT_SWORD.attacks)) {
+      const total = attackDuration(attack);
+      expect(attack.active / total, `${attack.id} is live for most of its action`)
+        .toBeLessThan(0.45);
+      expect(attack.active, `${attack.id} has no contact window`).toBeGreaterThan(0.1);
+      // The chain always branches at or after the blade stops cutting.
+      expect(comboTransitionTime(attack)).toBeGreaterThanOrEqual(attack.windup + attack.active - 1e-9);
+      expect(comboTransitionTime(attack)).toBeLessThanOrEqual(total);
     }
   });
 
@@ -165,7 +177,8 @@ describe("straight sword moveset", () => {
     expect(riposteConfig.playbackEndTime).toBeCloseTo(1.3, 4);
     expect(riposteConfig.crossFadeDuration).toBeCloseTo(0.18, 4);
     expect(riposteConfig.crossFadeOutDuration).toBeCloseTo(0.24, 4);
-    expect(STRAIGHT_SWORD.animations.riposte.startingSeparation).toBeCloseTo(1.45, 3);
+    // Measured reach of the authored lunge on the corrected-grip rig.
+    expect(STRAIGHT_SWORD.animations.riposte.startingSeparation).toBeCloseTo(0.9, 3);
     expect(riposte.windup).toBeCloseTo(0.4, 4);
     expect(riposte.windup + riposte.active + riposte.recovery)
       .toBeCloseTo(1.1333, 4);
@@ -268,7 +281,7 @@ describe("straight sword moveset", () => {
     expect(backstabDeath).toEqual({
       action: "CRITICAL_DEATH",
       startAt: 0,
-      crossFadeDuration: 0.35,
+      crossFadeDuration: 0.55,
       endAt: expect.closeTo(1.9, 4),
     });
     expect(pairedAtOutcome).toEqual({

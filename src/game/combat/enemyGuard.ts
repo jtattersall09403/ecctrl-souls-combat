@@ -1,11 +1,19 @@
 import type { AnimationState } from "../core/types";
 import { clipPlaybackDuration } from "../anim/animationManifest";
-import { ENEMY_STATE_DURATIONS } from "./tuning";
+import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
 
 const GUARD_HIT_ANIMATIONS = new Set<AnimationState>(["GUARD_HIT_A", "GUARD_HIT_B"]);
 
 export const ENEMY_GUARD_ENTER_DURATION = clipPlaybackDuration("GUARD_ENTER") ?? 0.8333;
-export const ENEMY_GUARD_TACTICAL_DURATION = ENEMY_GUARD_ENTER_DURATION + ENEMY_STATE_DURATIONS.guard;
+
+/** Entry clip plus the archetype's tactical hold. */
+export function enemyGuardTacticalDuration(guardHold: number) {
+  return ENEMY_GUARD_ENTER_DURATION + guardHold;
+}
+
+export const ENEMY_GUARD_TACTICAL_DURATION = enemyGuardTacticalDuration(
+  DEFAULT_ENEMY_ARCHETYPE.stateDurations.guard,
+);
 
 export type EnemyGuardVisualStep = {
   nextAnimation: AnimationState | null;
@@ -22,11 +30,13 @@ export function resolveEnemyGuardVisualStep({
   currentAnimation,
   guardHitUntil,
   holdInitialState,
+  tacticalDuration = ENEMY_GUARD_TACTICAL_DURATION,
 }: {
   actionTime: number;
   currentAnimation: AnimationState;
   guardHitUntil: number;
   holdInitialState: boolean;
+  tacticalDuration?: number;
 }): EnemyGuardVisualStep {
   const hitActive = GUARD_HIT_ANIMATIONS.has(currentAnimation)
     && actionTime < guardHitUntil;
@@ -43,7 +53,7 @@ export function resolveEnemyGuardVisualStep({
     };
   }
 
-  if (actionTime >= Math.max(ENEMY_GUARD_TACTICAL_DURATION, guardHitUntil)) {
+  if (actionTime >= Math.max(tacticalDuration, guardHitUntil)) {
     return { nextAnimation: null, shouldExit: true };
   }
 

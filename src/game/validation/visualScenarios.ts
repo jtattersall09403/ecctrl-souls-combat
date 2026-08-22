@@ -33,6 +33,10 @@ export const VISUAL_SCENARIO_IDS = [
   "backstep",
   "stationary-landing",
   "moving-landing",
+  "bow-shot",
+  "bow-partial-draw",
+  "bow-aim-tracking",
+  "riposte-queued",
 ] as const;
 
 export type VisualScenarioId = typeof VISUAL_SCENARIO_IDS[number];
@@ -55,6 +59,16 @@ type InputCue = {
   to: number;
   actions?: readonly InputAction[];
   move?: readonly [number, number];
+  /**
+   * Camera stick, in the same units the touch/mouse path accumulates.
+   *
+   * Applied per second rather than per frame, so a cue means the same thing at
+   * any capture rate. Needed to exercise anything that answers the *look*
+   * input rather than the movement one — an aimed bow leaning to where the
+   * player is looking, for instance, which nothing else in the driver can
+   * reach.
+   */
+  camera?: readonly [number, number];
 };
 
 type EnemyCue = VisualScenarioEnemyCue & {
@@ -71,6 +85,14 @@ export type VisualScenario = {
     yaw: number;
     health?: number;
     equipped?: boolean;
+    /**
+     * Item to hold, when the scene is about a weapon the player does not start
+     * with. Equipped through the ordinary inventory, so the scene exercises the
+     * same path a player does rather than a validation-only shortcut.
+     */
+    weaponId?: string;
+    /** Ammunition to nock, for the same reason. */
+    ammoId?: string;
   };
   enemy: {
     enabled: boolean;
@@ -114,6 +136,19 @@ const REVIEW_ENEMY = {
 // A normal attack's production lunge can consume roughly 0.6 m before the
 // authored contact; this arrangement keeps both torsos readable instead of
 // letting the navigation capsules become the visible staging constraint.
+// The riposte review opens wider than the other two-actor scenes. The enemy
+// spends about 0.6 m of it lunging into the parry, and the execution then
+// anchors the attacker at its measured 0.9 m reach; from the normal spacing
+// that anchor would shove the attacker backwards as the execution begins.
+const RIPOSTE_REVIEW_PLAYER = {
+  position: [0, Y, 1.55] as const,
+  yaw: Math.atan2(0.65, -1.55),
+};
+const RIPOSTE_REVIEW_ENEMY = {
+  ...FACING_ENEMY,
+  position: [0.65, Y, 0] as const,
+  yaw: Math.atan2(-0.65, 1.55),
+};
 const FOCUSED_CONTACT_PLAYER = {
   position: [0, Y, 1.58] as const,
   yaw: Math.atan2(0.72, -1.58),
@@ -133,9 +168,11 @@ const FOCUSED_REVIEW_ENEMY = {
   yaw: Math.atan2(-0.85, 2.45),
 };
 // The focused parry starts farther apart than REVIEW_PLAYER/REVIEW_ENEMY.
-// Its cue centres the 0.10–0.29 s production parry window on the later blade
-// approach; a production capture remains the authority for actual contact.
-export const FOCUSED_LIGHT_1_CONTACT_TIME = 0.75;
+// Its cue centres the 0.10–0.29 s production parry window on the blade
+// approach. This is the measured LIGHT_1 contact on the corrected-grip rig
+// (source 0.508–0.542 s, taken at its centre); the previous 0.75 s was an
+// estimate made while the weapon was still mounted 90° out of true.
+export const FOCUSED_LIGHT_1_CONTACT_TIME = 0.53;
 
 /**
  * Data-only arrangements for browser visual tests. Cues provide the same
@@ -208,7 +245,9 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     enemy: SOLO_ENEMY,
     cues: [
       { from: 0.15, to: 0.24, actions: ["heavy"] },
-      { from: 0.64, to: 0.73, actions: ["heavy"] },
+      // Queue input opens when the swing commits, which is now the measured
+      // blade sweep rather than a flat fraction of the clip.
+      { from: 0.82, to: 0.91, actions: ["heavy"] },
     ],
   },
   "guard-defense": {
@@ -241,7 +280,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     label: "Damaged player uses Estus → heal animation and health recovery",
     warmup: 0.5,
     duration: 2.8,
-    player: { position: [0, Y, 0], yaw: Math.PI, health: 35 },
+    player: { position: [0, Y, 0], yaw: Math.PI, health: 24 },
     enemy: SOLO_ENEMY,
     cues: [{ from: 0.2, to: 0.29, actions: ["heal"] }],
   },
@@ -269,7 +308,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     // the first hit establishes overlap/facing and the second is lethal. Leave
     // the 1.9s fall plus at least one full second of its clamped prone pose.
     duration: 7,
-    player: { ...REVIEW_PLAYER, health: 48 },
+    player: { ...REVIEW_PLAYER, health: 34 },
     enemy: REVIEW_ENEMY,
     cues: [],
     enemyCues: [
@@ -291,14 +330,19 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     label: "Enemy attack → real parry → riposte hit reaction and full recovery",
     warmup: 0.5,
     duration: 8.8,
-    player: REVIEW_PLAYER,
-    enemy: REVIEW_ENEMY,
+    player: RIPOSTE_REVIEW_PLAYER,
+    enemy: RIPOSTE_REVIEW_ENEMY,
     cues: [
-      // LIGHT_1's weapon reaches the player at roughly 1.3s in this real
-      // lunge. Centre the 0.10–0.29s parry window on that contact, then wait
-      // for the complete intro + follow-through before requesting riposte.
-      { from: 1.08, to: 1.17, actions: ["parry"] },
-      { from: 2.35, to: 2.44, actions: ["light"] },
+      // LIGHT_1's contact window is the measured blade sweep, which opens
+      // about 0.42s into the enemy's lunge and closes 0.25s later. Centre the
+      // 0.10–0.29s parry window on it, then wait for the complete intro +
+      // follow-through before requesting the riposte.
+      { from: 0.6, to: 0.69, actions: ["parry"] },
+      // Let the deflection settle before asking for the execution. Requested
+      // any earlier, the parry's own follow-through blade is still sweeping
+      // back across the victim while the RIPOSTE command is already live,
+      // which reads as a contact beat that never resolves into damage.
+      { from: 2.3, to: 2.39, actions: ["light"] },
     ],
     enemyCues: [{ at: 0.25, intent: "lightCombo", attack: "light1", comboRemaining: 0 }],
   },
@@ -312,7 +356,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
       ...FACING_ENEMY,
       state: "parried",
       animation: "GUARD_BREAK",
-      health: 40,
+      health: 26,
       holdInitialState: true,
     },
     cues: [{ from: 0.55, to: 0.64, actions: ["light"] }],
@@ -323,8 +367,24 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     warmup: 0.5,
     duration: 6.5,
     player: { position: [0, Y, -1.15], yaw: 0 },
-    enemy: { ...FACING_ENEMY, health: 40 },
+    enemy: { ...FACING_ENEMY, health: 26 },
     cues: [{ from: 0.55, to: 0.64, actions: ["light"] }],
+  },
+  "riposte-queued": {
+    id: "riposte-queued",
+    label: "Riposte requested *during* the parry → still lands when the window opens",
+    warmup: 0.5,
+    duration: 8.8,
+    player: RIPOSTE_REVIEW_PLAYER,
+    enemy: RIPOSTE_REVIEW_ENEMY,
+    cues: [
+      { from: 0.6, to: 0.69, actions: ["parry"] },
+      // Pressed while the parry clip is still running, which is when a player
+      // reading the deflection actually presses it. The queue has to carry it
+      // to the reward window rather than dropping it on the floor.
+      { from: 0.95, to: 1.04, actions: ["light"] },
+    ],
+    enemyCues: [{ at: 0.25, intent: "lightCombo", attack: "light1", comboRemaining: 0 }],
   },
   "guard-break": {
     id: "guard-break",
@@ -343,7 +403,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     // plus at least one second of the clamped prone outcome.
     duration: 8.4,
     player: REVIEW_PLAYER,
-    enemy: { ...REVIEW_ENEMY, health: 90 },
+    enemy: { ...REVIEW_ENEMY, health: 62 },
     cues: [
       { from: 0.05, to: 0.14, actions: ["lockOn"] },
       { from: 0.25, to: 0.34, actions: ["light"] },
@@ -359,25 +419,32 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     player: FOCUSED_CONTACT_PLAYER,
     enemy: FOCUSED_CONTACT_ENEMY,
     cues: [
-      // Begin during guard entry so the rendered blade reaches the defender
-      // after GUARD is established but before the tactical hold expires.
-      { from: 0.35, to: 0.44, actions: ["light"] },
+      // Swing late enough that the blade arrives after GUARD is established
+      // and before the tactical hold expires. The light attack's contact was
+      // re-measured on the corrected grip and now lands 0.22 s earlier in the
+      // clip, so the cue moved with it.
+      { from: 0.62, to: 0.71, actions: ["light"] },
     ],
-    enemyCues: [{ at: 0.05, intent: "guard" }],
+    enemyCues: [{ at: 0.12, intent: "guard" }],
   },
   "enemy-parry": {
     id: "enemy-parry",
     label: "Enemy parry → one real blade intercept and player guard break",
     warmup: 0.5,
-    duration: 3.7,
+    // The guard-break stagger now plays at its authored 2.47s rather than a
+    // compressed 1.75s, so the recording has to stay open long enough to show
+    // the player recover from it.
+    duration: 4.5,
     player: FOCUSED_CONTACT_PLAYER,
     enemy: FOCUSED_CONTACT_ENEMY,
     cues: [{ from: 0.35, to: 0.44, actions: ["light"] }],
-    enemyCues: [{
-      at: 0.35 + FOCUSED_LIGHT_1_CONTACT_TIME
-        - (COMBAT_TUNING.parryActiveStart + COMBAT_TUNING.parryActiveEnd) / 2,
-      intent: "parry",
-    }],
+    enemyCues: [
+      {
+        at: 0.35 + FOCUSED_LIGHT_1_CONTACT_TIME
+          - (COMBAT_TUNING.parryActiveStart + COMBAT_TUNING.parryActiveEnd) / 2,
+        intent: "parry",
+      },
+    ],
   },
   "enemy-light-combo": {
     id: "enemy-light-combo",
@@ -405,10 +472,11 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     id: "enemy-approach",
     label: "Enemy approach intent → turn, walk, and accelerate to run",
     warmup: 0.5,
-    // End after two complete, reviewable RUN seams. Continuing farther carries
-    // the enemy behind the arena pillar and eventually crosses the production
-    // run-to-walk distance threshold, obscuring the behavior under review.
-    duration: 3.15,
+    // Show the whole gait arc: turn, walk, accelerate to a run as the player
+    // retreats through the run threshold, then drop back to a walk when the
+    // enemy closes through the hysteresis band. Ending before that last
+    // transition hid the half of the behaviour most likely to be wrong.
+    duration: 3.6,
     player: {
       position: [0, Y, 3.7],
       yaw: Math.atan2(1.8, -5),
@@ -450,7 +518,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     warmup: 0.5,
     duration: 6.8,
     player: FOCUSED_REVIEW_PLAYER,
-    enemy: { ...FOCUSED_REVIEW_ENEMY, health: 60 },
+    enemy: { ...FOCUSED_REVIEW_ENEMY, health: 40 },
     cues: [{ from: 0.05, to: 0.14, actions: ["lockOn"] }],
     enemyCues: [
       { at: 0.2, intent: "heal" },
@@ -528,6 +596,66 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
       { from: 2.75, to: 2.88, actions: ["dodge", "jump"], move: [0, 1] },
     ],
   },
+  "bow-shot": {
+    id: "bow-shot",
+    label: "Bow → raise to first person, draw to full, and loose",
+    warmup: 0.5,
+    // A longbow is 1.7 s to nock and 2.4 s to full draw, and the scene has to
+    // show the follow-through as well.
+    duration: 8.2,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      // Tap to raise, release, then hold all the way to full draw and let go.
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      { from: 0.6, to: 5.2, actions: ["light"] },
+    ],
+  },
+  "bow-aim-tracking": {
+    id: "bow-aim-tracking",
+    label: "Bow → draw, then look up and down while holding at full draw",
+    warmup: 0.5,
+    duration: 8.6,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      { from: 0.6, to: 7.4, actions: ["light"] },
+      // Look up, then back down, while the string is held.
+      { from: 4.6, to: 5.8, camera: [0, -22] },
+      { from: 5.9, to: 7.1, camera: [0, 26] },
+    ],
+  },
+  "bow-partial-draw": {
+    id: "bow-partial-draw",
+    label: "Bow → half draw, weak shot, then lower the bow",
+    warmup: 0.5,
+    duration: 6.4,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      // Let go halfway through the pull: the shot leaves, and it is weaker.
+      { from: 0.6, to: 3.4, actions: ["light"] },
+      // Guard doubles as "lower the bow".
+      { from: 5.2, to: 5.3, actions: ["guard"] },
+    ],
+  },
 };
 
 const SCRIPTABLE_ACTIONS: readonly InputAction[] = [
@@ -569,13 +697,17 @@ export class VisualScenarioDriver {
     const active = new Set<InputAction>();
     let moveX = 0;
     let moveY = 0;
+    let cameraX = 0;
+    let cameraY = 0;
     for (const cue of this.scenario.cues) {
       if (!this.ready || this.elapsed < cue.from || this.elapsed >= cue.to) continue;
       for (const action of cue.actions ?? []) active.add(action);
       if (cue.move) [moveX, moveY] = cue.move;
+      if (cue.camera) [cameraX, cameraY] = cue.camera;
     }
     for (const action of SCRIPTABLE_ACTIONS) input.setVirtual(action, active.has(action));
     input.setTouchMovement({ x: moveX, y: moveY });
+    if (cameraX || cameraY) input.addTouchCamera({ x: cameraX * step, y: cameraY * step });
   }
 
   /** Returns a due opponent choice once; combat code still starts/resolves it. */

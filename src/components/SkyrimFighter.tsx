@@ -1,6 +1,6 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { animationMixerDelta, type AnimationCommand } from "../game/anim/animationCommand";
@@ -19,13 +19,15 @@ import {
   usesCrossFadeSoleProxy,
 } from "../game/anim/grounding";
 import {
-  CHARACTER_GLB,
-  CHARACTER_ASSET_REVISION,
+  RIG_GLB,
+  HURTBOX_SEGMENTS,
+  sanitizeBoneName,
   CHARACTER_SCALE,
   AIRBORNE_IMPACT_PROXIMITY_METERS,
   CROSS_FADE_SOLE_SAFETY_MARGIN_METERS,
   LOCOMOTION_STATES,
   RIG_SOCKETS,
+  RIG_SOCKET_ROTATION,
   clipConfig,
   transitionCrossFadeDuration,
 } from "../game/anim/animationManifest";
@@ -33,8 +35,57 @@ import { CHARACTER_BODY_CENTER_HEIGHT, CHARACTER_MODEL_OFFSET } from "../game/ph
 import type { AnimationState, WeaponSocketTransform, WeaponVisualProfile } from "../game/core/types";
 import { VISUAL_PROBE_BONES, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
 import { VISUAL_FRAME_PHASE_PRIORITY } from "../game/validation/visualFrameMarker";
+import { applyAppearance, clearAppearance } from "../game/actors/appearance";
+import { DEFAULT_RACE, RIG_REVISION, raceById, type RaceDefinition, type RaceId } from "../game/actors/races";
+import type { ArmourDefinition } from "../game/equipment/armour";
+import type { MountedArmour } from "../game/actors/armourMounting";
+import { ArmourAttachments } from "./ArmourAttachments";
+import { NockedArrow } from "./NockedArrow";
+import { OffHandItem } from "./OffHandItem";
+import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
-const GLB_URL = `${import.meta.env.BASE_URL}${CHARACTER_GLB}?v=${CHARACTER_ASSET_REVISION}`;
+/**
+ * The rig carries the skeleton and every semantic clip; a race GLB carries only
+ * that race's skin. They are separate downloads because the animations are
+ * identical for every race and would otherwise be duplicated per body.
+ *
+ * Nothing has to be re-bound to join them: both are built from the same
+ * skeleton, so the clips' bone names resolve against whichever race model is
+ * mounted, and `useAnimations` binds by name.
+ */
+const RIG_URL = `${import.meta.env.BASE_URL}${RIG_GLB}?v=${RIG_REVISION}`;
+
+const NO_ARMOUR: readonly ArmourDefinition[] = [];
+
+/**
+ * Not zero: a zero-scaled bone produces a singular matrix, which turns every
+ * vertex it skins into NaN and takes the whole mesh's bounding box with it.
+ */
+const FIRST_PERSON_HEAD_SCALE = 0.001;
+
+/**
+ * How the aim angle is spread up the spine.
+ *
+ * The two spine shares sum to *one* on purpose, and the head's is extra. Bones
+ * compose down the chain, and the arms hang off Spine2 — so what the bow
+ * receives is Spine1 + Spine2 and nothing else. Counting the head into the
+ * total leaves the hands short of the aim line by exactly the head's share,
+ * which reads as the bow lagging behind the crosshair.
+ */
+type AimBone = { share: number; object: THREE.Object3D; authored: THREE.Quaternion | null };
+
+/** Time constant for easing the lean toward where the player is looking. */
+const AIM_PITCH_SMOOTHING_SECONDS = 0.09;
+
+const AIM_PITCH_BONES: readonly { bone: string; share: number }[] = [
+  { bone: "NPC Spine1 [Spn1]", share: 0.35 },
+  { bone: "NPC Spine2 [Spn2]", share: 0.65 },
+  { bone: "NPC Head [Head]", share: 0.15 },
+];
+
+function raceUrl(race: RaceDefinition) {
+  return `${import.meta.env.BASE_URL}${race.asset}?v=${race.revision}`;
+}
 
 // Progress (0-1) through EQUIP/UNEQUIP at which the sword switches sockets,
 // matching roughly when the drawing/sheathing hand reaches the hip in the
@@ -115,16 +166,40 @@ function createHealingFlask() {
  * procedural posing, foot markers, weapon IK or runtime root-motion stripping
  * (root motion is already resolved in the asset pipeline).
  */
-export function SkyrimFighter({
+/**
+ * A Skyrim actor.
+ *
+ * Keyed by race, deliberately. The animation mixer resolves each clip's target
+ * bones *once*, by name, against whatever was mounted when the action was first
+ * played. Swapping the race body underneath it leaves every one of those
+ * bindings pointing at the previous skeleton, and the new one stands in its
+ * bind pose for the rest of the session. Rebuilding the mixer is the only
+ * honest fix, and remounting is how a React component rebuilds.
+ */
+export function SkyrimFighter(props: SkyrimFighterProps) {
+  return <PosedActor key={props.raceId ?? DEFAULT_RACE} {...props} />;
+}
+
+type SkyrimFighterProps = Parameters<typeof PosedActor>[0];
+
+function PosedActor({
   animationCommandRef,
   equipped,
   equippedRef,
   enemy = false,
   weaponRef,
   targetAnchorRef,
+  hurtboxRef,
+  headBoneRef,
+  aimPitchRef,
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
+  offHandProfile = null,
+  armour = NO_ARMOUR,
+  nockedArrow = null,
+  firstPerson = false,
+  raceId = DEFAULT_RACE,
   modelOffsetY = CHARACTER_MODEL_OFFSET,
   validationTint,
   visualProbe,
@@ -137,10 +212,49 @@ export function SkyrimFighter({
   weaponRef?: MutableRefObject<THREE.Object3D | null>;
   /** Animated upper-body anchor for lock-on UI or other actor-following effects. */
   targetAnchorRef?: MutableRefObject<THREE.Object3D | null>;
+  /** Receives this actor's live skeleton-fitted combat capsules. */
+  hurtboxRef?: HurtboxRigRef;
+  /**
+   * Receives the live head bone, for a first-person camera to sit on.
+   *
+   * Anchoring the eye to the skeleton rather than to a measured height is what
+   * makes the view track the pose: an archer's head comes to the string, and a
+   * camera pinned at a constant height would not.
+   */
+  headBoneRef?: MutableRefObject<THREE.Object3D | null>;
+  /**
+   * Radians the upper body should lean to look where the actor is aiming.
+   * Positive is upward. Zero, or absent, leaves the authored pose alone.
+   */
+  aimPitchRef?: MutableRefObject<number>;
   animationTimeRef?: MutableRefObject<number>;
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
+  /** Shield or other off-hand item, or null for an empty hand. */
+  offHandProfile?: WeaponVisualProfile | null;
+  /** Worn armour. Each piece is skinned to the shared rig and hides what it covers. */
+  armour?: readonly ArmourDefinition[];
+  /**
+   * Arrow to show on the string, or null for none. Mounted on the drawing hand
+   * so the authored draw carries it from the quiver to the anchor.
+   */
+  nockedArrow?: {
+    asset: string;
+    visible: boolean;
+    /** Unit world direction of the shot, so the shaft lies along it. */
+    aimDirection: MutableRefObject<THREE.Vector3>;
+  } | null;
+  /**
+   * The camera is inside this actor's head.
+   *
+   * Collapses the head bone rather than hiding meshes: eyes, mouth, hair and a
+   * helmet are all weighted to it, so scaling the bone away takes every one of
+   * them with it and nothing has to know which mesh is a face on which race.
+   */
+  firstPerson?: boolean;
+  /** Which body to mount on the shared rig. */
+  raceId?: RaceId;
   modelOffsetY?: number;
   /** High-contrast actor identity used only by production-path visual scenarios. */
   validationTint?: THREE.ColorRepresentation;
@@ -149,7 +263,9 @@ export function SkyrimFighter({
   /** Known world-space support plane used by the upward-only penetration guard and validation. */
   visualSupportY?: number;
 }) {
-  const gltf = useGLTF(GLB_URL);
+  const race = raceById(raceId);
+  const rig = useGLTF(RIG_URL);
+  const gltf = useGLTF(raceUrl(race));
   const weaponUrl = `${import.meta.env.BASE_URL}${weaponProfile.asset}`;
   const weaponGltf = useGLTF(weaponUrl);
   const model = useMemo(() => {
@@ -176,7 +292,103 @@ export function SkyrimFighter({
     return weapon;
   }, [weaponGltf.scene]);
   const weaponMount = useMemo(() => new THREE.Group(), []);
+  // The hand that is *not* holding the item. With a bow in the left hand, this
+  // is the one that nocks and draws.
+  const drawHandSocket = useMemo(
+    () => model.getObjectByName(RIG_SOCKETS.weapon) ?? model.getObjectByName(RIG_SOCKETS.weaponFallback) ?? null,
+    [model],
+  );
   const healingFlask = useMemo(() => createHealingFlask(), []);
+
+  const headBone = useMemo(
+    () => (RIG_SOCKETS.head ? model.getObjectByName(sanitizeBoneName(RIG_SOCKETS.head)) ?? null : null),
+    [model],
+  );
+  // Restored on the way out, so the actor is left exactly as it was found.
+  useLayoutEffect(() => {
+    if (!headBone) return;
+    headBone.scale.setScalar(firstPerson ? FIRST_PERSON_HEAD_SCALE : 1);
+    return () => { headBone.scale.setScalar(1); };
+  }, [firstPerson, headBone]);
+
+  useLayoutEffect(() => {
+    if (!headBoneRef) return;
+    headBoneRef.current = headBone;
+    return () => {
+      if (headBoneRef.current === headBone) headBoneRef.current = null;
+    };
+  }, [headBone, headBoneRef]);
+
+  /**
+   * Lean the upper body to where the actor is aiming.
+   *
+   * An authored clip aims dead level, so without this the bow, the arrow and
+   * both arms stay pinned to the horizon however far the player looks up or
+   * down — which in first person reads as the controls not working. Spreading
+   * the angle down the spine is the cheap stand-in for the aim-offset layer a
+   * blended rig would have: no clip has to be re-authored, and the head comes
+   * with it, so the first-person eye leans in too.
+   */
+  const aimBones = useMemo(() => AIM_PITCH_BONES.map(({ bone, share }) => ({
+    share,
+    object: model.getObjectByName(sanitizeBoneName(bone)) ?? null,
+    /** Last frame's clip-authored rotation, restored before the next update. */
+    authored: null as THREE.Quaternion | null,
+  })).filter((entry): entry is AimBone => Boolean(entry.object)),
+  [model]);
+  const aimTmp = useRef({
+    parentWorld: new THREE.Quaternion(),
+    parentInverse: new THREE.Quaternion(),
+    delta: new THREE.Quaternion(),
+    local: new THREE.Quaternion(),
+    actorWorld: new THREE.Quaternion(),
+    right: new THREE.Vector3(),
+  });
+  /**
+   * Put the spine back the way the clip left it.
+   *
+   * Must run *before* the mixer, every frame. The lean is applied by
+   * premultiplying each bone's local rotation, which is only safe if something
+   * rewrites that rotation from the clip in between — and an externally timed
+   * action is *paused*, so on those frames nothing does. Without this the
+   * delta compounds, and the symptom is an actor whose arms accelerate
+   * smoothly away from its body over a couple of seconds.
+   */
+  const releaseAimPitch = useCallback(() => {
+    for (const entry of aimBones) {
+      if (entry.authored) entry.object.quaternion.copy(entry.authored);
+    }
+  }, [aimBones]);
+
+  const applyAimPitch = useCallback((pitch: number) => {
+    if (Math.abs(pitch) < 1e-4 || aimBones.length === 0) return;
+    const tmp = aimTmp.current;
+    for (const entry of aimBones) {
+      const { object, share } = entry;
+      entry.authored = (entry.authored ?? new THREE.Quaternion()).copy(object.quaternion);
+      const parent = object.parent;
+      if (!parent) continue;
+      parent.updateWorldMatrix(true, false);
+      parent.getWorldQuaternion(tmp.parentWorld);
+      tmp.parentInverse.copy(tmp.parentWorld).invert();
+      // Pitch about the *actor's* right axis, in world space, then expressed in
+      // the bone's parent frame. Bones on this rig do not share an axis
+      // convention, so rotating a local axis would twist as often as it tilts.
+      if (!root.current) continue;
+      root.current.getWorldQuaternion(tmp.actorWorld);
+      tmp.right.set(1, 0, 0).applyQuaternion(tmp.actorWorld).setY(0);
+      if (tmp.right.lengthSq() < 1e-6) continue;
+      tmp.right.normalize();
+      // Negated: the actor's right axis points the way it does, and a positive
+      // aim pitch means *up*, which about that axis is a negative rotation.
+      tmp.delta.setFromAxisAngle(tmp.right, -pitch * share);
+      tmp.local.copy(tmp.parentInverse).multiply(tmp.delta).multiply(tmp.parentWorld);
+      object.quaternion.premultiply(tmp.local);
+      object.updateWorldMatrix(false, true);
+    }
+  }, [aimBones]);
+
+  const appliedAimPitch = useRef(0);
 
   const previousAction = useRef<THREE.AnimationAction | null>(null);
   const fadingFromAction = useRef<THREE.AnimationAction | null>(null);
@@ -192,9 +404,12 @@ export function SkyrimFighter({
   const boundsTmp = useRef(new THREE.Box3());
   const meshBoundsTmp = useRef(new THREE.Box3());
   const weaponGripTmp = useRef(new THREE.Vector3());
+  const socketConvention = useRef(new THREE.Quaternion());
+  const itemOffset = useRef(new THREE.Quaternion());
   const weaponTipTmp = useRef(new THREE.Vector3());
 
-  const { actions, mixer } = useAnimations(gltf.animations, root);
+  // Clips come from the rig, the skeleton they drive comes from the race body.
+  const { actions, mixer } = useAnimations(rig.animations, root);
 
   // drei's useAnimations normally advances its mixer from raw render-wall
   // delta. Combat and the deterministic visual scenarios deliberately cap
@@ -208,6 +423,13 @@ export function SkyrimFighter({
       mixer.timeScale = 1;
     };
   }, [mixer]);
+
+  // Colour the body. Before the enemy tint below, which is a *validation*
+  // overlay on top of whatever the character actually looks like.
+  useLayoutEffect(() => {
+    const touched = applyAppearance(model, race.appearance);
+    return () => clearAppearance(touched);
+  }, [model, race.appearance]);
 
   // Every mesh casts/receives shadows regardless of side. This must not be
   // folded into the enemy-tint effect below (that one is enemy-only), or the
@@ -258,17 +480,53 @@ export function SkyrimFighter({
     [model],
   );
   const targetAnchor = useMemo(() => model.getObjectByName(TARGET_ANCHOR_BONE_NAME) ?? null, [model]);
+  // Resolve the pipeline-fitted combat capsules onto this instance's bones.
+  // Endpoints stay in unscaled bone space; the actor's scale arrives through
+  // the bone's own world matrix, exactly as the baked sole markers do.
+  const hurtboxBones = useMemo<HurtboxBone[]>(
+    () => HURTBOX_SEGMENTS.flatMap((segment) => {
+      const bone = model.getObjectByName(sanitizeBoneName(segment.bone));
+      return bone
+        ? [{
+          bone,
+          from: new THREE.Vector3().fromArray(segment.from),
+          to: new THREE.Vector3().fromArray(segment.to),
+          radius: segment.radius,
+          halfLength: segment.halfLength,
+        }]
+        : [];
+    }),
+    [model],
+  );
   const probeBones = useMemo(
     () => Object.entries(VISUAL_PROBE_BONES).map(([id, name]) => [id, model.getObjectByName(name) ?? null] as const),
     [model],
   );
+  // Armour arrives after the body (its GLBs suspend separately), so re-collect
+  // when it does: this list is what drives the per-frame skeleton refresh and
+  // the actor's mesh bounds, and a cuirass left out of it would not deform.
+  const [armourRevision, setArmourRevision] = useState(0);
+  // Worn footwear stands the actor on its soles instead of its bare feet. The
+  // grounding solve aims at sole markers measured on a bare foot, so this is a
+  // constant lift on top of it rather than anything the solve has to know about.
+  // Worn meshes are excluded from the actor's measured surface. Every support
+  // envelope, sole marker and penetration allowance in this file was fitted to
+  // the *body*; armour has no envelope of its own and legitimately reaches a
+  // few millimetres past bare skin, so folding it into the same measurement
+  // would compare a bare-body calibration against a shod silhouette.
+  const armourMeshes = useRef<ReadonlySet<THREE.SkinnedMesh>>(new Set());
+  const onArmourChange = useCallback((mounted: MountedArmour | null) => {
+    armourMeshes.current = new Set(mounted?.meshes ?? []);
+    setArmourRevision((n) => n + 1);
+  }, []);
   const skinnedMeshes = useMemo(() => {
     const meshes: THREE.SkinnedMesh[] = [];
     model.traverse((object) => {
       if (object instanceof THREE.SkinnedMesh) meshes.push(object);
     });
     return meshes;
-  }, [model]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- armourRevision marks a mutation of `model`.
+  }, [model, armourRevision]);
 
   useLayoutEffect(() => {
     if (!visualProbe) return;
@@ -278,6 +536,14 @@ export function SkyrimFighter({
       visualProbe.missingBones = [];
     };
   }, [probeBones, visualProbe]);
+
+  useLayoutEffect(() => {
+    if (!hurtboxRef) return;
+    hurtboxRef.current = hurtboxBones;
+    return () => {
+      if (hurtboxRef.current === hurtboxBones) hurtboxRef.current = null;
+    };
+  }, [hurtboxBones, hurtboxRef]);
 
   useLayoutEffect(() => {
     if (targetAnchorRef) targetAnchorRef.current = targetAnchor;
@@ -293,7 +559,16 @@ export function SkyrimFighter({
     const worldScale = socket.getWorldScale(new THREE.Vector3()).x || 1;
     weaponMount.scale.setScalar(transform.localScale / worldScale);
     weaponMount.position.fromArray(transform.localPosition);
-    weaponMount.quaternion.fromArray(transform.localRotation).normalize();
+    socketConvention.current.fromArray(RIG_SOCKET_ROTATION as unknown as number[]).normalize();
+    // Rig convention first, then whatever offset the item itself declares. The
+    // convention is a property of the skeleton (weapon assets keep their native
+    // attach-node axes, the armature stores bones in Blender's), so it is
+    // applied once here for every socket and every weapon instead of being
+    // baked by hand into each weapon definition.
+    weaponMount.quaternion
+      .copy(socketConvention.current)
+      .multiply(itemOffset.current.fromArray(transform.localRotation).normalize())
+      .normalize();
     socket.add(weaponMount);
     currentSocket.current = socket;
   };
@@ -319,7 +594,11 @@ export function SkyrimFighter({
     const worldScale = handSocket.getWorldScale(new THREE.Vector3()).x || 1;
     healingFlask.scale.setScalar(1 / worldScale);
     healingFlask.position.fromArray(weaponProfile.held.localPosition);
-    healingFlask.quaternion.fromArray(weaponProfile.held.localRotation).normalize();
+    healingFlask.quaternion
+      .fromArray(RIG_SOCKET_ROTATION as unknown as number[])
+      .normalize()
+      .multiply(new THREE.Quaternion().fromArray(weaponProfile.held.localRotation).normalize())
+      .normalize();
     handSocket.add(healingFlask);
     return () => {
       handSocket.remove(healingFlask);
@@ -411,10 +690,19 @@ export function SkyrimFighter({
     // Advance blend weights and self-timed clips from their authoritative
     // clock. Externally timed actions are paused, so this updates their fades
     // without moving them away from the combat action clock above.
+    releaseAimPitch();
     mixer.timeScale = 1;
     mixer.update(mixerDelta);
     mixer.timeScale = 0;
     if ((fadingFromAction.current?.getEffectiveWeight() ?? 0) <= 1e-5) fadingFromAction.current = null;
+    // Eased, not applied raw. The lean moves the whole upper body, so a stick
+    // flicked from level to full elevation would teleport both hands most of a
+    // metre in one frame — which is both a visible snap and a real hazard for
+    // anything watching bone travel.
+    appliedAimPitch.current += (
+      (aimPitchRef?.current ?? 0) - appliedAimPitch.current
+    ) * (1 - Math.exp(-mixerDelta / AIM_PITCH_SMOOTHING_SECONDS));
+    applyAimPitch(appliedAimPitch.current);
     if (action && config.playbackEndTime != null && action.time > config.playbackEndTime) {
       // Clamp the currently playing action as soon as it reaches its authored
       // out-point. Waiting until the next state consumes a command allowed the
@@ -670,7 +958,7 @@ export function SkyrimFighter({
         mesh.computeBoundingBox();
         if (!mesh.boundingBox) continue;
         meshBoundsTmp.current.copy(mesh.boundingBox).applyMatrix4(mesh.matrixWorld);
-        boundsTmp.current.union(meshBoundsTmp.current);
+        if (!armourMeshes.current.has(mesh)) boundsTmp.current.union(meshBoundsTmp.current);
         meshBounds[mesh.name || mesh.uuid] = {
           min: meshBoundsTmp.current.min.toArray(),
           max: meshBoundsTmp.current.max.toArray(),
@@ -723,8 +1011,36 @@ export function SkyrimFighter({
   return (
     <group ref={root} position={[0, modelOffsetY, 0]} scale={CHARACTER_SCALE} dispose={null}>
       <primitive object={model} />
+      {offHandProfile && (
+        <Suspense fallback={null}>
+          <OffHandItem model={model} profile={offHandProfile} sheathed={!equipped} />
+        </Suspense>
+      )}
+      {nockedArrow && (
+        <Suspense fallback={null}>
+          <NockedArrow
+            socket={drawHandSocket}
+            parent={model}
+            asset={nockedArrow.asset}
+            visible={nockedArrow.visible}
+            aimDirection={nockedArrow.aimDirection}
+          />
+        </Suspense>
+      )}
+      {armour.length > 0 && (
+        <Suspense fallback={null}>
+          <ArmourAttachments
+            model={model}
+            armour={armour}
+            bodyMeshSlots={race.meshBipedSlots}
+            hideTorso={firstPerson}
+            hideHands={firstPerson}
+            onMountedChange={onArmourChange}
+          />
+        </Suspense>
+      )}
     </group>
   );
 }
 
-useGLTF.preload(GLB_URL);
+useGLTF.preload(RIG_URL);

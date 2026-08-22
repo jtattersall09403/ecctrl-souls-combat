@@ -62,6 +62,9 @@ roles, restarts a reaction, or gets up after a lethal result.
 | Hitch once per locomotion cycle | Exported input start/end and duplicate loop endpoint | Zero-based loop timeline in the asset build |
 | Whole actor jerks while limb curves are smooth | Controller position/yaw and animation speed matching | Movement/controller integration |
 | Feet or body cross the floor | Final deformed mesh, COM vertical channel, support mode | Pipeline vertical-root policy/support envelope/phases |
+| Feet hover; body looks anchored and the feet rise to it | Whether the clip's authored vertical COM survived the build | Preserve vertical root motion; only the controller-owned jump strips it |
+| Gait stutters when speed changes | Clip's authored ground speed against the actor's real speed | Cadence-match playback (`authoredGroundSpeed`), not the controller |
+| A clip's arms barely move while the legs do | Per-bone rotation range in the source | Source selection: a combat-carriage clip holds the arms on purpose |
 | Actor floats or is pinned during jump/fall | Support phase at that source time | Declare `airborne`; do not globally ground the clip |
 | Blade visibly connects but gameplay misses | Rendered weapon sensor and physics-step ordering | Keep active window through the following simulation callback |
 | Weapon points/grips incorrectly | Animated socket basis with the real weapon | Weapon-definition socket transform, never per-action patches |
@@ -232,6 +235,79 @@ idea of style or merely make the current numbers pass.
 - **Grounding is a skinned-surface problem.** Foot-bone origins, root height,
   and capsule position cannot prove that toes, knees, head, or a prone body stay
   above the floor.
+- **Vertical COM is pose, not travel.** Strip planar root motion because the
+  controller owns travel; never strip the vertical channel with it. A crouch,
+  lunge or stagger is authored by lowering the COM, so removing it pins the
+  torso at rest height and lifts the feet off the floor for the whole clip. The
+  symptom is "the body is anchored in space and the feet come up to it", and it
+  is invisible in any clip that happens to keep its COM near neutral — which is
+  why idle looked fine while the guard entry floated 0.26 m.
+- **Upward-only support protection cannot fix a hover.** Penetration mode only
+  ever pushes an actor up. If a clip's lowest visible surface is already above
+  the plane, nothing corrects it; measure `surfaceMinY` per clip and expect its
+  minimum to sit at or just below zero for anything grounded.
+- **A stride is authored for one ground speed.** Measure it (median planar
+  velocity of a planted sole) and scale playback by the ratio. A controller that
+  steps between two speeds without cadence matching reads as a stutter, not as
+  foot-slide.
+- **A filename that says "combat" says the arms are held.** Vanilla `1hm_*`
+  locomotion damps arm swing on purpose; `mt_sprintforwardsword` is the plain
+  sprint with only the sword arm damped. Compare per-bone rotation ranges
+  between candidates before assuming an animation is broken.
+- **Socket convention belongs to the rig, not the item.** Weapon assets keep
+  their native attach-node axes; the armature keeps the importer's bone
+  convention. Resolve that once per skeleton. A per-item quaternion tuned by eye
+  hides the offset and silently invalidates every contact time measured against
+  it.
+- **Contact windows are measurable.** Track the blade through the clip and take
+  the interval where it is both sweeping and inside the reach zone; cross-check
+  it against a capsule-reachability test. Fractions of the clip picked by feel
+  leave the sensor live through the wind-up and the follow-through.
+- **Hurtboxes can be fitted, not authored.** Let each bone claim the skin it
+  moves, fold short bones into their parent, and fit a capsule per surviving
+  body part. Claim by *any* meaningful weight, not by dominant weight alone:
+  limb bones share their skin with twist partners and end up owning almost
+  nothing. Anatomical bone length must come from the farthest child, because
+  twist bones start at their parent's head and averaging collapses the span.
+- **Grounding calibration belongs to the body, not to what it wears.** Support
+  envelopes, sole markers and the mesh-penetration allowance are all fitted to
+  the bare body. Worn armour has no envelope of its own and legitimately reaches
+  past bare skin, so it must be excluded from the actor's measured surface —
+  folding it in compares a bare-body calibration against a shod silhouette and
+  fails a scene that looks perfectly correct.
+- **Do not raise a shod actor to stand on its soles.** A boot reaches a
+  centimetre or two below bare skin and its sole visibly clips the floor, and
+  every instinct says to lift the actor by that much. Three things go wrong, in
+  order: adding it to the root position is cancelled next frame, because the
+  solve reads the sole bones back out of the scene graph; raising the plane the
+  solve aims at instead folds the lift into `groundCorrection` and trips every
+  correction-magnitude limit; and once those are separated properly, *paired*
+  animations break, because they align two actors whose boots are not the same
+  thickness. Skyrim ships the same small clip. Accept it.
+- **Importing a garment mutates the armature.** PyNifly adds a bone for any skin
+  partition the rig lacks, and Bethesda ships truncated names (`NPC R Pauldro`).
+  Snapshot the rig's bones before the first mesh import and fold strays back
+  onto it, or the piece exports skinned to a joint no actor has and cannot be
+  worn at all. A validation that checks "is this group a bone?" *after* the
+  import can never fire.
+- **A charge-up pose should be driven by its charge, not played at it.** Map the
+  gameplay fraction (draw, wind-up, channel) onto the clip's *time* and set that
+  time directly. The pose then is the state: a draw that stalls for stamina
+  stalls on screen and one that slips home slips home, with no code
+  synchronising two clocks that will drift.
+- **Restarting a clip that is already playing is a visible hitch.** Raising a bow
+  already in the hand changes the state, not the pose. Make the restart opt-out,
+  and the "unexpected rendered run" the visual contract reports is the symptom
+  to look for.
+- **A callback that reads the equipped weapon must depend on it.** `useCallback`
+  with an incomplete dependency list freezes whatever was in hand on the first
+  render, so a bow's idle comes back as the sword's. It is invisible while there
+  is only one weapon, and the tell is a stray animation command with an
+  unrelated clip name in it.
+- **Bethesda's `*arrowflight` NIFs are the projectile *effect*.** They carry a
+  motion-trail quad several times the shaft's length. Left in, the length
+  normalisation sizes the trail and the arrow comes out a fifth of its proper
+  size, in a shape that reads as an arrow at a glance. Drop the effect shapes.
 - **Transition defects hide between clips.** Always retain frames on both sides
   of every occurrence-specific boundary, including same-semantic restarts.
 - **Jitter has multiple causes.** Separate source-bone spikes, loop timeline

@@ -93,6 +93,23 @@ export class InputController {
     };
   }
 
+  /**
+   * Forget everything currently held.
+   *
+   * Called when a modal screen takes the input: a click that equipped an item
+   * is a mouse-down the combat FSM would otherwise read as a light attack the
+   * moment the screen closes.
+   */
+  clearHeld() {
+    this.keys.clear();
+    this.mouse.clear();
+    this.virtual.clear();
+    this.previous.clear();
+    this.current.clear();
+    this.touchMove = { x: 0, y: 0 };
+    this.touchCamera = { x: 0, y: 0 };
+  }
+
   setVirtual(action: InputAction, active: boolean) {
     if (active) this.virtual.add(action);
     else this.virtual.delete(action);
@@ -194,12 +211,12 @@ export function resolveAttackDirection(
 // Single source of truth for the player's Ecctrl top speeds — CombatScene's
 // <Ecctrl maxWalkVel/maxRunVel> must use these same constants, since Ecctrl's
 // own cap runs before analogueMoveSpeed's clamp ever gets a chance to act.
-export const PLAYER_WALK_SPEED = 5.5;
-export const PLAYER_SPRINT_SPEED = 8.0;
+export const PLAYER_WALK_SPEED = 4.5;
+export const PLAYER_SPRINT_SPEED = 6.0;
 // Locked-on movement is always walk-paced (sprint is disabled while locked on)
 // but is tuned independently from free-roam walking, since strafing around a
 // target reads better at a different pace than walking in a straight line.
-export const PLAYER_LOCK_ON_WALK_SPEED = 3.8;
+export const PLAYER_LOCK_ON_WALK_SPEED = 3.0;
 
 export function analogueMoveSpeed(magnitude: number, sprinting: boolean) {
   const amount = Math.min(1, Math.max(0, magnitude));

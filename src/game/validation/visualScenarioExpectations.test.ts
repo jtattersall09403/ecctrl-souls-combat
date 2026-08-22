@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MANIFEST_STATES } from "../anim/animationManifest";
 import expectations from "./visualScenarioExpectations.json";
 import { VISUAL_SCENARIOS } from "./visualScenarios";
+import { CHARACTER_CAPSULE_RADIUS } from "../physics/characterPhysics";
 
 type RunRequirement = string | { state: string };
 type ScenarioContract = {
@@ -173,7 +174,10 @@ describe("production visual scenario animation-run contracts", () => {
       const contract = rawContract as ScenarioContract;
       if (!contract.actorSeparation) continue;
       expect(Number.isFinite(contract.actorSeparation.minDistanceMeters), scenario).toBe(true);
-      expect(contract.actorSeparation.minDistanceMeters, scenario).toBeGreaterThan(0.6);
+      // The navigation capsules' own contact distance is the floor: a threshold
+      // below it could never reject anything the simulation can produce.
+      expect(contract.actorSeparation.minDistanceMeters, scenario)
+        .toBeGreaterThanOrEqual(CHARACTER_CAPSULE_RADIUS * 2);
     }
   });
 });
