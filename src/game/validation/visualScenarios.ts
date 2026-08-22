@@ -114,6 +114,19 @@ const REVIEW_ENEMY = {
 // A normal attack's production lunge can consume roughly 0.6 m before the
 // authored contact; this arrangement keeps both torsos readable instead of
 // letting the navigation capsules become the visible staging constraint.
+// The riposte review opens wider than the other two-actor scenes. The enemy
+// spends about 0.6 m of it lunging into the parry, and the execution then
+// anchors the attacker at its measured 0.9 m reach; from the normal spacing
+// that anchor would shove the attacker backwards as the execution begins.
+const RIPOSTE_REVIEW_PLAYER = {
+  position: [0, Y, 1.55] as const,
+  yaw: Math.atan2(0.65, -1.55),
+};
+const RIPOSTE_REVIEW_ENEMY = {
+  ...FACING_ENEMY,
+  position: [0.65, Y, 0] as const,
+  yaw: Math.atan2(-0.65, 1.55),
+};
 const FOCUSED_CONTACT_PLAYER = {
   position: [0, Y, 1.58] as const,
   yaw: Math.atan2(0.72, -1.58),
@@ -133,9 +146,11 @@ const FOCUSED_REVIEW_ENEMY = {
   yaw: Math.atan2(-0.85, 2.45),
 };
 // The focused parry starts farther apart than REVIEW_PLAYER/REVIEW_ENEMY.
-// Its cue centres the 0.10–0.29 s production parry window on the later blade
-// approach; a production capture remains the authority for actual contact.
-export const FOCUSED_LIGHT_1_CONTACT_TIME = 0.75;
+// Its cue centres the 0.10–0.29 s production parry window on the blade
+// approach. This is the measured LIGHT_1 contact on the corrected-grip rig
+// (source 0.508–0.542 s, taken at its centre); the previous 0.75 s was an
+// estimate made while the weapon was still mounted 90° out of true.
+export const FOCUSED_LIGHT_1_CONTACT_TIME = 0.53;
 
 /**
  * Data-only arrangements for browser visual tests. Cues provide the same
@@ -208,7 +223,9 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     enemy: SOLO_ENEMY,
     cues: [
       { from: 0.15, to: 0.24, actions: ["heavy"] },
-      { from: 0.64, to: 0.73, actions: ["heavy"] },
+      // Queue input opens when the swing commits, which is now the measured
+      // blade sweep rather than a flat fraction of the clip.
+      { from: 0.82, to: 0.91, actions: ["heavy"] },
     ],
   },
   "guard-defense": {
@@ -291,14 +308,19 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     label: "Enemy attack → real parry → riposte hit reaction and full recovery",
     warmup: 0.5,
     duration: 8.8,
-    player: REVIEW_PLAYER,
-    enemy: REVIEW_ENEMY,
+    player: RIPOSTE_REVIEW_PLAYER,
+    enemy: RIPOSTE_REVIEW_ENEMY,
     cues: [
-      // LIGHT_1's weapon reaches the player at roughly 1.3s in this real
-      // lunge. Centre the 0.10–0.29s parry window on that contact, then wait
-      // for the complete intro + follow-through before requesting riposte.
-      { from: 1.08, to: 1.17, actions: ["parry"] },
-      { from: 2.35, to: 2.44, actions: ["light"] },
+      // LIGHT_1's contact window is the measured blade sweep, which opens
+      // about 0.42s into the enemy's lunge and closes 0.25s later. Centre the
+      // 0.10–0.29s parry window on it, then wait for the complete intro +
+      // follow-through before requesting the riposte.
+      { from: 0.6, to: 0.69, actions: ["parry"] },
+      // Let the deflection settle before asking for the execution. Requested
+      // any earlier, the parry's own follow-through blade is still sweeping
+      // back across the victim while the RIPOSTE command is already live,
+      // which reads as a contact beat that never resolves into damage.
+      { from: 2.3, to: 2.39, actions: ["light"] },
     ],
     enemyCues: [{ at: 0.25, intent: "lightCombo", attack: "light1", comboRemaining: 0 }],
   },
@@ -359,25 +381,32 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     player: FOCUSED_CONTACT_PLAYER,
     enemy: FOCUSED_CONTACT_ENEMY,
     cues: [
-      // Begin during guard entry so the rendered blade reaches the defender
-      // after GUARD is established but before the tactical hold expires.
-      { from: 0.35, to: 0.44, actions: ["light"] },
+      // Swing late enough that the blade arrives after GUARD is established
+      // and before the tactical hold expires. The light attack's contact was
+      // re-measured on the corrected grip and now lands 0.22 s earlier in the
+      // clip, so the cue moved with it.
+      { from: 0.62, to: 0.71, actions: ["light"] },
     ],
-    enemyCues: [{ at: 0.05, intent: "guard" }],
+    enemyCues: [{ at: 0.12, intent: "guard" }],
   },
   "enemy-parry": {
     id: "enemy-parry",
     label: "Enemy parry → one real blade intercept and player guard break",
     warmup: 0.5,
-    duration: 3.7,
+    // The guard-break stagger now plays at its authored 2.47s rather than a
+    // compressed 1.75s, so the recording has to stay open long enough to show
+    // the player recover from it.
+    duration: 4.5,
     player: FOCUSED_CONTACT_PLAYER,
     enemy: FOCUSED_CONTACT_ENEMY,
     cues: [{ from: 0.35, to: 0.44, actions: ["light"] }],
-    enemyCues: [{
-      at: 0.35 + FOCUSED_LIGHT_1_CONTACT_TIME
-        - (COMBAT_TUNING.parryActiveStart + COMBAT_TUNING.parryActiveEnd) / 2,
-      intent: "parry",
-    }],
+    enemyCues: [
+      {
+        at: 0.35 + FOCUSED_LIGHT_1_CONTACT_TIME
+          - (COMBAT_TUNING.parryActiveStart + COMBAT_TUNING.parryActiveEnd) / 2,
+        intent: "parry",
+      },
+    ],
   },
   "enemy-light-combo": {
     id: "enemy-light-combo",
@@ -407,8 +436,10 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     warmup: 0.5,
     // End after two complete, reviewable RUN seams. Continuing farther carries
     // the enemy behind the arena pillar and eventually crosses the production
-    // run-to-walk distance threshold, obscuring the behavior under review.
-    duration: 3.15,
+    // run-to-walk hysteresis band, obscuring the behavior under review. The
+    // enemy now closes without re-deciding while it is still far, so it reaches
+    // that band sooner than it used to.
+    duration: 3.0,
     player: {
       position: [0, Y, 3.7],
       yaw: Math.atan2(1.8, -5),

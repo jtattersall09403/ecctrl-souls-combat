@@ -3,7 +3,9 @@ import { InputController } from "../io/input";
 import { inputToIntent } from "../combat/intent";
 import { MANIFEST_STATES, clipPlaybackDuration } from "../anim/animationManifest";
 import { ENEMY_GUARD_TACTICAL_DURATION } from "../combat/enemyGuard";
-import { ACTION_DURATIONS, ENEMY_LOCOMOTION, ENEMY_STATE_DURATIONS } from "../combat/tuning";
+import { ACTION_DURATIONS } from "../combat/tuning";
+import { CHARACTER_CAPSULE_RADIUS } from "../physics/characterPhysics";
+import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
 import {
   COMBAT_TUNING,
   STRAIGHT_SWORD,
@@ -159,7 +161,7 @@ describe("visual scenario input driver", () => {
       Math.cos(targetYaw - scenario.enemy.yaw),
     ));
 
-    expect(initialDistance).toBeLessThan(ENEMY_LOCOMOTION.runDistance);
+    expect(initialDistance).toBeLessThan(DEFAULT_ENEMY_ARCHETYPE.locomotion.runAboveDistance);
     expect(retreatCues.length).toBeGreaterThanOrEqual(2);
     expect(retreatCues.some((cue) => Math.abs(cue.move?.[0] ?? 0) > 0.1)).toBe(true);
     expect(yawDelta).toBeGreaterThan(Math.PI / 6);
@@ -173,7 +175,11 @@ describe("visual scenario input driver", () => {
         scenario.player.position[2] - scenario.enemy.position[2],
       );
       expect(initialDistance, id).toBeGreaterThan(1.7);
-      expect(expectations[id].actorSeparation?.minDistanceMeters, id).toBeGreaterThan(0.6);
+      // Never accept a threshold below what the navigation capsules physically
+      // allow: at hard contact the two actors are as close as the simulation
+      // can put them, and anything under that would stop rejecting anything.
+      expect(expectations[id].actorSeparation?.minDistanceMeters, id)
+        .toBeGreaterThanOrEqual(CHARACTER_CAPSULE_RADIUS * 2);
     }
   });
 
@@ -230,7 +236,7 @@ describe("visual scenario input driver", () => {
       const returnToReady = inputTime
         + outcome
         + (recovery.endAt - recoveryClockAtOutcome)
-        + ENEMY_STATE_DURATIONS.recover;
+        + DEFAULT_ENEMY_ARCHETYPE.stateDurations.recover;
 
       expect(scenario.duration, `${type} recording cuts off before ready`).toBeGreaterThan(returnToReady);
       expect(expectations[type].enemyAnimations).toContain(recovery.action);

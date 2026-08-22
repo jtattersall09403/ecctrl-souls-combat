@@ -1,11 +1,14 @@
-import type { AttackDefinition } from "../core/types";
+import type { AttackDefinition, GuardProfile } from "../equipment/types";
 import { BLOCK_HIT_STOP, resolveGuardImpact } from "./blockReaction";
-import { COMBAT_TUNING } from "./weapon";
 
 export type HitContext = {
   attack: AttackDefinition;
-  /** Defender is holding guard with a weapon and the hit is not an execution. */
-  guarding: boolean;
+  /**
+   * The defender's active guard, or null when they are not guarding. Carrying
+   * the profile rather than a boolean is what lets a shield block differently
+   * from a weapon without a second code path.
+   */
+  guard: GuardProfile | null;
   /** Defender is inside dodge/roll invulnerability frames. */
   iframe: boolean;
   execution: "riposte" | "backstab" | null;
@@ -38,13 +41,12 @@ export function resolveHit(
 
   const heavy = isHeavyAttack(ctx.attack);
 
-  if (ctx.guarding && !ctx.execution) {
+  if (ctx.guard && !ctx.execution) {
     const impact = resolveGuardImpact({
       health: defenderHealth,
       stamina: defenderStamina,
       incomingDamage: ctx.attack.damage,
-      stability: COMBAT_TUNING.guardStability,
-      damageReduction: COMBAT_TUNING.guardDamageReduction,
+      guard: ctx.guard,
       guardBreakDamage: ctx.guardBreakDamage ?? 0,
     });
     if (impact.blocked) {

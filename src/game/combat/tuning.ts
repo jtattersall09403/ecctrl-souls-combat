@@ -1,19 +1,35 @@
 import type { CombatAction } from "../core/types";
-import { clipConfig } from "../anim/animationManifest";
+import type { Loadout } from "../equipment/types";
+import { clipConfig, clipPlaybackDuration } from "../anim/animationManifest";
+import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
+import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
 import { BLOCK_RECOIL_DURATION } from "./blockReaction";
 import { COMBAT_TUNING } from "./weapon";
 
 export const PLAYER_MAX_HEALTH = COMBAT_TUNING.maxHealth;
-export const ENEMY_MAX_HEALTH = 150;
 export const PLAYER_ESTUS = 3;
-export const ENEMY_ESTUS = 1;
 
-function clipPlaybackDuration(state: Parameters<typeof clipConfig>[0], fallback: number) {
-  const config = clipConfig(state);
-  return config.sourceDuration && config.playbackRate > 0
-    ? config.sourceDuration / config.playbackRate
-    : fallback;
-}
+/** The player's starting kit. The off hand is the shield slot, still empty. */
+export const PLAYER_LOADOUT: Loadout = { mainHand: STRAIGHT_SWORD, offHand: null };
+
+/**
+ * How long a broken guard leaves an actor open.
+ *
+ * This is the authored stagger, played at its native speed rather than
+ * compressed into a shorter window, so the opening reads as a real Souls-style
+ * punish. Both actors and the riposte window derive from it, so retiming the
+ * clip retimes the whole interaction.
+ */
+export const GUARD_BREAK_STUN_DURATION = clipPlaybackDuration(
+  STRAIGHT_SWORD.animations.guardBreak,
+) ?? 2.4667;
+
+/**
+ * How late into that stagger a riposte may still be started. Ending slightly
+ * before the stagger does keeps the execution from beginning on a victim who
+ * is already standing back up.
+ */
+export const RIPOSTE_WINDOW = GUARD_BREAK_STUN_DURATION * 0.9;
 
 // Fixed durations for the actions whose length is not encoded in a weapon
 // definition. Attack lengths come from the weapon moveset instead. EQUIP and
@@ -30,37 +46,38 @@ export const ACTION_DURATIONS: Partial<Record<CombatAction, number>> = {
   hit: 0.62,
   hitHeavy: 0.62,
   recoil: BLOCK_RECOIL_DURATION,
-  guardBreak: clipPlaybackDuration("GUARD_BREAK", 1.75),
+  guardBreak: GUARD_BREAK_STUN_DURATION,
 };
 
-// Timeouts for the enemy state machine's non-attack states.
-export const ENEMY_STATE_DURATIONS = {
-  strafe: 0.62,
-  guard: 0.82,
-  parry: COMBAT_TUNING.parryDuration,
-  recover: 0.72,
-  recoil: BLOCK_RECOIL_DURATION,
-  parried: clipPlaybackDuration("GUARD_BREAK", 1.75),
-  staggerLight: 0.62,
-  staggerDefault: 0.58,
-} as const;
+/**
+ * Backstep travel, and the dash that a follow-up attack covers.
+ *
+ * The dash deliberately falls short of the retreat so the exchange still gives
+ * up ground overall — it is a re-engage, not a free reset.
+ */
+export const BACKSTEP_DISTANCE_MULTIPLIER = 2;
+export const BACKSTEP_ATTACK_DASH_FRACTION = 0.9;
 
 // Initial dodge/backstep launch speeds. The controllers decay these over the
 // action's duration.
-export const DODGE_SPEED = {
-  playerRoll: 10.0,
-  playerBackstep: 7.0,
-  enemyRoll: 10.0,
-  enemyBackstep: 7.0,
-} as const;
-
-export const ENEMY_LOCOMOTION = {
-  walkVel: 1.75,
-  runVel: 4.5,
-  runDistance: 6,
-  decisionMin: 0.3,
-  decisionJitter: 0.2,
+export const PLAYER_DODGE_SPEED = {
+  roll: 10.0,
+  backstep: 7.0 * BACKSTEP_DISTANCE_MULTIPLIER,
 } as const;
 
 export const DEFAULT_ENEMY_COUNT = 1;
 export const MAX_ENEMIES = 3;
+
+/** Convenience for the sandbox's single enemy type; scenes read archetypes. */
+export const ENEMY_MAX_HEALTH = DEFAULT_ENEMY_ARCHETYPE.maxHealth;
+export const ENEMY_ESTUS = DEFAULT_ENEMY_ARCHETYPE.estus;
+
+/**
+ * Enemy state timeouts that are not archetype-specific because they are owned
+ * by an authored clip or a shared combat rule rather than by the creature.
+ */
+export const ENEMY_SHARED_DURATIONS = {
+  parry: COMBAT_TUNING.parryDuration,
+  recoil: BLOCK_RECOIL_DURATION,
+  parried: GUARD_BREAK_STUN_DURATION,
+} as const;

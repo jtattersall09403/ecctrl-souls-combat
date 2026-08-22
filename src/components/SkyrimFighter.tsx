@@ -21,11 +21,14 @@ import {
 import {
   CHARACTER_GLB,
   CHARACTER_ASSET_REVISION,
+  HURTBOX_SEGMENTS,
+  sanitizeBoneName,
   CHARACTER_SCALE,
   AIRBORNE_IMPACT_PROXIMITY_METERS,
   CROSS_FADE_SOLE_SAFETY_MARGIN_METERS,
   LOCOMOTION_STATES,
   RIG_SOCKETS,
+  RIG_SOCKET_ROTATION,
   clipConfig,
   transitionCrossFadeDuration,
 } from "../game/anim/animationManifest";
@@ -33,6 +36,7 @@ import { CHARACTER_BODY_CENTER_HEIGHT, CHARACTER_MODEL_OFFSET } from "../game/ph
 import type { AnimationState, WeaponSocketTransform, WeaponVisualProfile } from "../game/core/types";
 import { VISUAL_PROBE_BONES, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
 import { VISUAL_FRAME_PHASE_PRIORITY } from "../game/validation/visualFrameMarker";
+import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
 const GLB_URL = `${import.meta.env.BASE_URL}${CHARACTER_GLB}?v=${CHARACTER_ASSET_REVISION}`;
 
@@ -122,6 +126,7 @@ export function SkyrimFighter({
   enemy = false,
   weaponRef,
   targetAnchorRef,
+  hurtboxRef,
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
@@ -137,6 +142,8 @@ export function SkyrimFighter({
   weaponRef?: MutableRefObject<THREE.Object3D | null>;
   /** Animated upper-body anchor for lock-on UI or other actor-following effects. */
   targetAnchorRef?: MutableRefObject<THREE.Object3D | null>;
+  /** Receives this actor's live skeleton-fitted combat capsules. */
+  hurtboxRef?: HurtboxRigRef;
   animationTimeRef?: MutableRefObject<number>;
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
@@ -192,6 +199,8 @@ export function SkyrimFighter({
   const boundsTmp = useRef(new THREE.Box3());
   const meshBoundsTmp = useRef(new THREE.Box3());
   const weaponGripTmp = useRef(new THREE.Vector3());
+  const socketConvention = useRef(new THREE.Quaternion());
+  const itemOffset = useRef(new THREE.Quaternion());
   const weaponTipTmp = useRef(new THREE.Vector3());
 
   const { actions, mixer } = useAnimations(gltf.animations, root);
@@ -258,6 +267,24 @@ export function SkyrimFighter({
     [model],
   );
   const targetAnchor = useMemo(() => model.getObjectByName(TARGET_ANCHOR_BONE_NAME) ?? null, [model]);
+  // Resolve the pipeline-fitted combat capsules onto this instance's bones.
+  // Endpoints stay in unscaled bone space; the actor's scale arrives through
+  // the bone's own world matrix, exactly as the baked sole markers do.
+  const hurtboxBones = useMemo<HurtboxBone[]>(
+    () => HURTBOX_SEGMENTS.flatMap((segment) => {
+      const bone = model.getObjectByName(sanitizeBoneName(segment.bone));
+      return bone
+        ? [{
+          bone,
+          from: new THREE.Vector3().fromArray(segment.from),
+          to: new THREE.Vector3().fromArray(segment.to),
+          radius: segment.radius,
+          halfLength: segment.halfLength,
+        }]
+        : [];
+    }),
+    [model],
+  );
   const probeBones = useMemo(
     () => Object.entries(VISUAL_PROBE_BONES).map(([id, name]) => [id, model.getObjectByName(name) ?? null] as const),
     [model],
@@ -280,6 +307,14 @@ export function SkyrimFighter({
   }, [probeBones, visualProbe]);
 
   useLayoutEffect(() => {
+    if (!hurtboxRef) return;
+    hurtboxRef.current = hurtboxBones;
+    return () => {
+      if (hurtboxRef.current === hurtboxBones) hurtboxRef.current = null;
+    };
+  }, [hurtboxBones, hurtboxRef]);
+
+  useLayoutEffect(() => {
     if (targetAnchorRef) targetAnchorRef.current = targetAnchor;
     return () => {
       if (targetAnchorRef?.current === targetAnchor) targetAnchorRef.current = null;
@@ -293,7 +328,16 @@ export function SkyrimFighter({
     const worldScale = socket.getWorldScale(new THREE.Vector3()).x || 1;
     weaponMount.scale.setScalar(transform.localScale / worldScale);
     weaponMount.position.fromArray(transform.localPosition);
-    weaponMount.quaternion.fromArray(transform.localRotation).normalize();
+    socketConvention.current.fromArray(RIG_SOCKET_ROTATION as unknown as number[]).normalize();
+    // Rig convention first, then whatever offset the item itself declares. The
+    // convention is a property of the skeleton (weapon assets keep their native
+    // attach-node axes, the armature stores bones in Blender's), so it is
+    // applied once here for every socket and every weapon instead of being
+    // baked by hand into each weapon definition.
+    weaponMount.quaternion
+      .copy(socketConvention.current)
+      .multiply(itemOffset.current.fromArray(transform.localRotation).normalize())
+      .normalize();
     socket.add(weaponMount);
     currentSocket.current = socket;
   };
@@ -319,7 +363,11 @@ export function SkyrimFighter({
     const worldScale = handSocket.getWorldScale(new THREE.Vector3()).x || 1;
     healingFlask.scale.setScalar(1 / worldScale);
     healingFlask.position.fromArray(weaponProfile.held.localPosition);
-    healingFlask.quaternion.fromArray(weaponProfile.held.localRotation).normalize();
+    healingFlask.quaternion
+      .fromArray(RIG_SOCKET_ROTATION as unknown as number[])
+      .normalize()
+      .multiply(new THREE.Quaternion().fromArray(weaponProfile.held.localRotation).normalize())
+      .normalize();
     handSocket.add(healingFlask);
     return () => {
       handSocket.remove(healingFlask);

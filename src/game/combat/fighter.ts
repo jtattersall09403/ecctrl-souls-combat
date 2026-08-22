@@ -1,11 +1,9 @@
-import type { AttackDefinition, CombatAction } from "../core/types";
+import type { CombatAction } from "../core/types";
+import type { AttackDefinition } from "../equipment/types";
+import type { EnemyArchetype } from "../actors/enemyArchetypes";
+import { DEFAULT_ENEMY_ARCHETYPE } from "../actors/enemyArchetypes";
 import { COMBAT_TUNING } from "./weapon";
-import {
-  ENEMY_ESTUS,
-  ENEMY_MAX_HEALTH,
-  PLAYER_ESTUS,
-  PLAYER_MAX_HEALTH,
-} from "./tuning";
+import { PLAYER_ESTUS, PLAYER_MAX_HEALTH } from "./tuning";
 
 // The enemy state machine owns a few locomotion/decision states the player
 // never enters. Both actors otherwise share the CombatAction vocabulary.
@@ -35,6 +33,8 @@ export type Team = "player" | "enemy";
 export type Fighter = {
   id: string;
   team: Team;
+  /** Stat/behaviour source. Players ignore it; enemies take every pool from it. */
+  archetype: EnemyArchetype;
   maxHealth: number;
   health: number;
   maxStamina: number;
@@ -63,6 +63,9 @@ export type Fighter = {
   criticalType: "riposte" | "backstab" | null;
   criticalVictimYaw: number;
 
+  /** Intent currently being carried out, so the AI can commit to it. */
+  lastIntent: string | null;
+
   // Stable per-instance bias so identically-positioned enemies (e.g. the two
   // mirrored side spawns) don't score every intent identically and act like
   // clones. Persists across resetFighter; only real per-encounter randomness
@@ -70,17 +73,27 @@ export type Fighter = {
   personality: number;
 };
 
-export function createFighter(id: string, team: Team): Fighter {
+/**
+ * Build a fighter. An enemy takes every pool from its archetype, so a new
+ * creature type is a data entry rather than another branch here.
+ */
+export function createFighter(
+  id: string,
+  team: Team,
+  archetype: EnemyArchetype = DEFAULT_ENEMY_ARCHETYPE,
+): Fighter {
   const player = team === "player";
+  const maxHealth = player ? PLAYER_MAX_HEALTH : archetype.maxHealth;
   return {
     id,
     team,
-    maxHealth: player ? PLAYER_MAX_HEALTH : ENEMY_MAX_HEALTH,
-    health: player ? PLAYER_MAX_HEALTH : ENEMY_MAX_HEALTH,
-    maxStamina: COMBAT_TUNING.maxStamina,
-    stamina: COMBAT_TUNING.maxStamina,
+    archetype,
+    maxHealth,
+    health: maxHealth,
+    maxStamina: player ? COMBAT_TUNING.maxStamina : archetype.maxStamina,
+    stamina: player ? COMBAT_TUNING.maxStamina : archetype.maxStamina,
     staminaCooldown: 0,
-    estus: player ? PLAYER_ESTUS : ENEMY_ESTUS,
+    estus: player ? PLAYER_ESTUS : archetype.estus,
     equipped: true,
     state: player ? "idle" : "watching",
     actionTime: 0,
@@ -94,9 +107,10 @@ export function createFighter(id: string, team: Team): Fighter {
     dodgeDirection: { x: 0, y: 0, z: -1 },
     decisionTimer: 0.4 + Math.random() * 0.6,
     strafeSide: 1,
-    staggerDuration: 0.58,
+    staggerDuration: archetype.stateDurations.staggerDefault,
     criticalType: null,
     criticalVictimYaw: 0,
+    lastIntent: null,
     personality: Math.random(),
   };
 }
@@ -106,7 +120,7 @@ export function resetFighter(fighter: Fighter) {
   fighter.health = fighter.maxHealth;
   fighter.stamina = fighter.maxStamina;
   fighter.staminaCooldown = 0;
-  fighter.estus = fighter.team === "player" ? PLAYER_ESTUS : ENEMY_ESTUS;
+  fighter.estus = fighter.team === "player" ? PLAYER_ESTUS : fighter.archetype.estus;
   fighter.equipped = true;
   fighter.state = fighter.team === "player" ? "idle" : "watching";
   fighter.actionTime = 0;

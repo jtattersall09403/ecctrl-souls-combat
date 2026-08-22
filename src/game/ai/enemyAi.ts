@@ -12,6 +12,15 @@ export type EnemyAiContext = {
   playerRecovering: boolean;
   /** Stable per-enemy trait in [0, 1); see Fighter.personality. */
   personality: number;
+  /** Intent the enemy is already carrying out, if any. */
+  previousIntent?: EnemyIntent | null;
+  /**
+   * Score the previous intent keeps while it remains viable. Approach, strafe
+   * and lightCombo score within noise of each other at mid range, so without
+   * commitment the enemy re-picks a different one every decision tick and
+   * visibly stutters toward the player instead of running at them.
+   */
+  commitmentBonus?: number;
 };
 
 export type EnemyIntentScore = { intent: EnemyIntent; score: number };
@@ -42,9 +51,15 @@ export function scoreEnemyIntents(context: EnemyAiContext): EnemyIntentScore[] {
     { intent: "backstep" as const, score: incoming && context.distance < 1.35 && context.stamina >= 24 ? 0.76 : 0 },
     { intent: "heal" as const, score: context.estus > 0 && hurt > 0 && safeToHeal ? 0.42 + hurt * 0.48 : 0 },
   ];
-  return scores.map((entry, index) => (
-    entry.score > 0 ? { ...entry, score: entry.score + personalityBias(context.personality, index) } : entry
-  ));
+  const commitment = context.commitmentBonus ?? 0;
+  return scores.map((entry, index) => {
+    if (entry.score <= 0) return entry;
+    const sticky = entry.intent === context.previousIntent ? commitment : 0;
+    return {
+      ...entry,
+      score: entry.score + personalityBias(context.personality, index) + sticky,
+    };
+  });
 }
 
 export function selectEnemyIntent(context: EnemyAiContext, random = Math.random()): EnemyIntent {

@@ -54,6 +54,11 @@ export type ClipConfig = {
   supportPhases?: SupportPhase[];
   /** Pipeline-baked visible-surface samples; never skinned at gameplay runtime. */
   supportEnvelope?: SupportEnvelope | null;
+  /**
+   * Measured ground speed (m/s) this clip's authored stride is timed for, from
+   * the planar velocity of its planted sole. ~0 for standing actions.
+   */
+  authoredGroundSpeed?: number | null;
   /** Authored net root translation (metres, character space) or null. */
   rootMotionDelta: [number, number, number] | null;
   provenance: string;
@@ -61,6 +66,14 @@ export type ClipConfig = {
 
 type RigManifest = {
   rootBone: string;
+  /**
+   * Quaternion XYZW taking weapon-asset space into any socket bone's local
+   * space on this rig. Weapon GLBs keep their native attach-node axes while
+   * the imported armature stores bones in Blender's convention; that fixed
+   * offset belongs to the skeleton, so every weapon inherits it and none of
+   * them carries a hand-tuned rotation.
+   */
+  socketRotation?: [number, number, number, number];
   sockets: {
     rightHand: string;
     leftHand: string;
@@ -72,6 +85,17 @@ type RigManifest = {
   targetHeightMeters: number;
 };
 
+export type HurtboxSegment = {
+  /** Rig bone this capsule rides, in the manifest's own naming. */
+  bone: string;
+  /** Capsule axis endpoints in unscaled bone-local space. */
+  from: [number, number, number];
+  to: [number, number, number];
+  /** Runtime metres. */
+  radius: number;
+  halfLength: number;
+};
+
 type CharacterManifest = {
   assetSha256?: string;
   rig: RigManifest;
@@ -81,6 +105,7 @@ type CharacterManifest = {
     /** Legacy scalar-marker fallback; current manifests use bone-local 3D candidates instead. */
     crossFadeSoleSafetyMarginMeters?: number;
   };
+  hurtbox?: { segments: HurtboxSegment[] };
   animations: Record<string, ClipConfig>;
 };
 
@@ -93,6 +118,26 @@ export const CHARACTER_ASSET_REVISION = CHARACTER_MANIFEST.assetSha256?.slice(0,
 
 export const RIG_ROOT_BONE = RIG.rootBone;
 export const RIG_SOCKETS = RIG.sockets;
+
+/**
+ * Skeleton-fitted combat volume, measured from this character's own skin by
+ * the pipeline. A different skeleton or silhouette produces a different set
+ * with no game-code change; an actor with no fitted hurtbox falls back to the
+ * navigation capsule.
+ */
+export const HURTBOX_SEGMENTS: readonly HurtboxSegment[] =
+  CHARACTER_MANIFEST.hurtbox?.segments ?? [];
+
+/**
+ * three.js strips whitespace and reserved characters from Object3D names on
+ * load, so a rig bone is looked up by its sanitized form rather than the name
+ * the skeleton and manifest use. Mirrors `PropertyBinding.sanitizeNodeName`.
+ */
+export function sanitizeBoneName(name: string) {
+  return name.replace(/\s/g, "_").replace(/[[\].:/]/g, "");
+}
+export const RIG_SOCKET_ROTATION: readonly [number, number, number, number] =
+  RIG.socketRotation ?? [0, 0, 0, 1];
 export const CHARACTER_SCALE = RIG.recommendedScale;
 export const CHARACTER_TARGET_HEIGHT = RIG.targetHeightMeters;
 export const AIRBORNE_IMPACT_PROXIMITY_METERS = Math.max(
@@ -116,6 +161,7 @@ const FALLBACK: ClipConfig = {
   supportMode: "penetration",
   supportPhases: [],
   supportEnvelope: null,
+  authoredGroundSpeed: null,
   rootMotionDelta: null,
   provenance: "",
 };
@@ -138,6 +184,11 @@ export function transitionCrossFadeDuration(
     ?? clipConfig(outgoingState).crossFadeOutDuration
     ?? clipConfig(incomingState).crossFadeDuration
     ?? 0.12;
+}
+
+/** Measured travel speed the authored stride is timed for, or null. */
+export function clipAuthoredGroundSpeed(state: AnimationState): number | null {
+  return clipConfig(state).authoredGroundSpeed ?? null;
 }
 
 /** Source-time span that runtime playback should cover before handing off. */

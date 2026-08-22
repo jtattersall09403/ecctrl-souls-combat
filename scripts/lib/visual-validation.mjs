@@ -742,6 +742,9 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
   if (visualFrames.length < 3) failures.push(`${scenario}: render-pose probe published fewer than 3 frames`);
 
   const limits = { ...DEFAULT_GROUNDING_LIMITS, ...(expected.groundingLimits ?? {}) };
+  // Per-scenario motion bounds, for the few scenes whose fastest authored
+  // action legitimately exceeds the suite-wide default.
+  const motionLimits = { ...DEFAULT_MOTION_LIMITS, ...(expected.motionLimits ?? {}) };
   const actors = {};
   for (const actor of ["player", "enemy"]) {
     const frames = actorFrames(visualFrames, actor);
@@ -819,19 +822,19 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
     exceeds(
       failures,
       summary.maxGroundCorrectionStepMeters,
-      DEFAULT_MOTION_LIMITS.maxRootCorrectionStepMeters,
+      motionLimits.maxRootCorrectionStepMeters,
       `${scenario}: ${actor} per-frame root-correction step`,
     );
     exceeds(
       failures,
       summary.maxBoneAngularStepDegrees,
-      DEFAULT_MOTION_LIMITS.maxBoneAngularStepDegrees,
+      motionLimits.maxBoneAngularStepDegrees,
       `${scenario}: ${actor} per-frame bone rotation`,
     );
     exceeds(
       failures,
       summary.maxBonePositionStepMeters,
-      DEFAULT_MOTION_LIMITS.maxBonePositionStepMeters,
+      motionLimits.maxBonePositionStepMeters,
       `${scenario}: ${actor} per-frame bone travel`,
     );
   }

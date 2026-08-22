@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BLOCK_HIT_STOP, BLOCK_RECOIL_DURATION, BLOCK_RECOIL_SPEED, blockRecoilVelocity, resolveGuardImpact } from "./blockReaction";
+import { SHIELD_STABILITY_BAND, WEAPON_STABILITY_BAND } from "../equipment/guard";
+import { STRAIGHT_SWORD } from "../equipment/weapons/straightSword";
+
+const WEAPON_GUARD = { stability: 0.55, absorption: { physical: 0.72 } };
 
 describe("blocked-attack recoil", () => {
   it("moves the attacker away from the defender while preserving vertical speed", () => {
@@ -25,8 +29,7 @@ describe("blocked-attack recoil", () => {
       health: 100,
       stamina: 100,
       incomingDamage: 24,
-      stability: 0.55,
-      damageReduction: 0.72,
+      guard: WEAPON_GUARD,
     });
     expect(impact.blocked).toBe(true);
     expect(impact.recoilAttacker).toBe(true);
@@ -39,8 +42,7 @@ describe("blocked-attack recoil", () => {
       health: 4,
       stamina: 100,
       incomingDamage: 24,
-      stability: 0.55,
-      damageReduction: 0.72,
+      guard: WEAPON_GUARD,
     });
     expect(lethalChip.blocked).toBe(true);
     expect(lethalChip.health).toBe(0);
@@ -49,13 +51,33 @@ describe("blocked-attack recoil", () => {
       health: 100,
       stamina: 0,
       incomingDamage: 24,
-      stability: 0.55,
-      damageReduction: 0.72,
+      guard: WEAPON_GUARD,
       guardBreakDamage: 18,
     });
     expect(guardBreak.blocked).toBe(false);
     expect(guardBreak.recoilAttacker).toBe(false);
     expect(guardBreak.triggerDamageVignette).toBe(true);
     expect(guardBreak.health).toBe(82);
+  });
+
+  it("charges less stamina to a steadier guard", () => {
+    const impact = (stability: number) => resolveGuardImpact({
+      health: 100,
+      stamina: 100,
+      incomingDamage: 24,
+      guard: { stability, absorption: { physical: 0.72 } },
+    });
+    const weapon = impact(WEAPON_STABILITY_BAND.max);
+    const shield = impact(SHIELD_STABILITY_BAND.min);
+    expect(shield.staminaDamage).toBeLessThan(weapon.staminaDamage);
+    expect(shield.stamina).toBeGreaterThan(weapon.stamina);
+  });
+
+  it("keeps the reference weapon inside the weapon stability band", () => {
+    const { stability } = STRAIGHT_SWORD.stats.guard;
+    expect(stability).toBeGreaterThanOrEqual(WEAPON_STABILITY_BAND.min);
+    expect(stability).toBeLessThanOrEqual(WEAPON_STABILITY_BAND.max);
+    // The whole point of the stat: a shield must be steadier than any weapon.
+    expect(stability).toBeLessThan(SHIELD_STABILITY_BAND.min);
   });
 });

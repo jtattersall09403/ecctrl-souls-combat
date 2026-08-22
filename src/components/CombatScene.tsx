@@ -10,22 +10,30 @@ import {
   clipPlaybackDuration,
   clipPlaybackSourceSpan,
 } from "../game/anim/animationManifest";
-import { selectLandingAnimation } from "../game/anim/landing";
+import { landingAnimationSpeed, selectLandingAnimation } from "../game/anim/landing";
 import { combatAudio } from "../game/fx/audio";
-import { BLOCK_RECOIL_DURATION, blockRecoilVelocity } from "../game/combat/blockReaction";
-import { resolveEnemyGuardVisualStep } from "../game/combat/enemyGuard";
+import { BLOCK_RECOIL_DURATION, PARRY_RECOIL_SPEED, blockRecoilVelocity } from "../game/combat/blockReaction";
+import { enemyGuardTacticalDuration, resolveEnemyGuardVisualStep } from "../game/combat/enemyGuard";
 import { createHitShake, sampleHitShake, type HitShakeImpulse, type HitShakeKind } from "../game/fx/cameraShake";
 import { isHeavyAttack, resolveHit } from "../game/combat/resolveHit";
 import { createFighter, resetFighter, type EnemyMode, type Fighter } from "../game/combat/fighter";
 import { CombatEventBus } from "../game/combat/events";
 import {
   ACTION_DURATIONS,
-  DODGE_SPEED,
-  ENEMY_LOCOMOTION,
-  ENEMY_MAX_HEALTH,
-  ENEMY_STATE_DURATIONS,
+  BACKSTEP_ATTACK_DASH_FRACTION,
+  BACKSTEP_DISTANCE_MULTIPLIER,
+  ENEMY_SHARED_DURATIONS,
   MAX_ENEMIES,
+  PLAYER_DODGE_SPEED,
+  PLAYER_LOADOUT,
+  RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
+import {
+  DEFAULT_ENEMY_ARCHETYPE,
+  type EnemyArchetype,
+} from "../game/actors/enemyArchetypes";
+import { activeGuardProfile } from "../game/equipment/guard";
+import { locomotionSpeedMultiplier } from "../game/anim/locomotionCadence";
 import {
   CHARACTER_CAPSULE_HALF_HEIGHT,
   CHARACTER_CAPSULE_RADIUS,
@@ -45,15 +53,16 @@ import {
   combatHurtboxCenterOffset,
   combatHurtboxHalfHeight,
 } from "../game/physics/characterPhysics";
-import { selectEnemyIntent } from "../game/ai/enemyAi";
+import { selectEnemyIntent, type EnemyIntent } from "../game/ai/enemyAi";
 import { analogueMoveSpeed, cameraRelativeDirection, input, PLAYER_LOCK_ON_WALK_SPEED, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, resolveAttackDirection } from "../game/io/input";
 import { inputToIntent } from "../game/combat/intent";
 import { lockOnLocomotionAnimation, lockOnOrientationWarp, lockOnSprintAllowed, lockOnYaws } from "../game/anim/lockOn";
 import { useGameStore } from "../game/core/store";
-import type { AnimationState, AttackDefinition, CombatAction } from "../game/core/types";
+import type { AnimationState, CombatAction } from "../game/core/types";
+import type { AttackDefinition } from "../game/equipment/types";
 import {
   COMBAT_TUNING,
-  STRAIGHT_SWORD,
+  attackDuration,
   comboCrossFadeDuration,
   comboEntryTime,
   comboQueueOpen,
@@ -82,6 +91,8 @@ import {
   visualFrameMarkerIndex,
 } from "../game/validation/visualFrameMarker";
 import { createActorVisualProbe, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
+import { OverlapCounter } from "../game/combat/overlaps";
+import { HAS_SKELETAL_HURTBOX, SkeletalHurtbox, type HurtboxBone } from "./SkeletalHurtbox";
 import { SkyrimFighter } from "./SkyrimFighter";
 import { Arena } from "./Arena";
 
@@ -167,7 +178,7 @@ function WeaponHitbox({
   active,
 }: {
   weapon: RefObject<THREE.Object3D | null>;
-  overlaps: MutableRefObject<Set<string>>;
+  overlaps: MutableRefObject<OverlapCounter>;
   name: string;
   active: RefObject<boolean>;
 }) {
@@ -211,11 +222,12 @@ function WeaponHitbox({
 }
 
 /**
- * Sensor-only full-height combat coverage. The Ecctrl capsule remains a
- * navigation/suspension shape; tying sword contact to that shorter capsule
+ * Fallback combat volume for a character with no pipeline-fitted hurtbox: one
+ * sensor capsule covering the actor's full height. The Ecctrl capsule remains
+ * a navigation/suspension shape; tying sword contact to that shorter capsule
  * makes visibly intersecting shoulder and upper-torso attacks miss.
  */
-function CombatHurtbox({
+function CapsuleHurtbox({
   controller,
   name,
 }: {
@@ -260,7 +272,7 @@ function ParryShield({
   active,
 }: {
   controller: RefObject<EcctrlHandle | null>;
-  overlaps: MutableRefObject<Set<string>>;
+  overlaps: MutableRefObject<OverlapCounter>;
   name: string;
   active: RefObject<boolean>;
 }) {
@@ -309,20 +321,27 @@ function ParryShield({
 type EnemyRuntime = {
   id: number;
   fighter: Fighter;
+  /** Every speed, timing and stat this enemy uses. See `actors/enemyArchetypes`. */
+  archetype: EnemyArchetype;
   start: THREE.Vector3;
   startYaw: number;
   handle: RefObject<EcctrlHandle | null>;
   weapon: MutableRefObject<THREE.Object3D | null>;
   targetAnchor: MutableRefObject<THREE.Object3D | null>;
-  overlaps: MutableRefObject<Set<string>>;
+  hurtbox: MutableRefObject<readonly HurtboxBone[] | null>;
+  overlaps: MutableRefObject<OverlapCounter>;
   hitboxActive: MutableRefObject<boolean>;
-  parryOverlaps: MutableRefObject<Set<string>>;
+  parryOverlaps: MutableRefObject<OverlapCounter>;
   parryActive: MutableRefObject<boolean>;
   visualProbe: ActorVisualProbe;
   animCommand: MutableRefObject<AnimationCommand>;
   actionTimeRef: MutableRefObject<number>;
   moveSpeed: MutableRefObject<number>;
-  locomotionWarp: MutableRefObject<number>;
+  animationSpeed: MutableRefObject<number>;
+  /** Latched gait, so the run/walk switch has hysteresis rather than a knife edge. */
+  running: MutableRefObject<boolean>;
+  /** Set when a backstep should chain into the dash-in attack on completion. */
+  backstepAttackQueued: MutableRefObject<boolean>;
   /** Absolute enemy action time through which a guard-hit clip must play. */
   guardHitUntil: number;
   /** Exact vulnerable pose retained when a riposte takes ownership. */
@@ -334,26 +353,35 @@ type EnemyRuntime = {
   weaponName: string;
 };
 
-function createEnemyRuntime(id: number, start: THREE.Vector3, startYaw = 0): EnemyRuntime {
-  const fighter = createFighter(`enemy-${id}`, "enemy");
-  fighter.attack = STRAIGHT_SWORD.attacks.light1;
+function createEnemyRuntime(
+  id: number,
+  start: THREE.Vector3,
+  startYaw = 0,
+  archetype: EnemyArchetype = DEFAULT_ENEMY_ARCHETYPE,
+): EnemyRuntime {
+  const fighter = createFighter(`enemy-${id}`, "enemy", archetype);
+  fighter.attack = archetype.loadout.mainHand.attacks.light1;
   return {
     id,
     fighter,
+    archetype,
     start: start.clone(),
     startYaw,
     handle: { current: null },
     weapon: { current: null },
     targetAnchor: { current: null },
-    overlaps: { current: new Set<string>() },
+    hurtbox: { current: null },
+    overlaps: { current: new OverlapCounter() },
     hitboxActive: { current: false },
-    parryOverlaps: { current: new Set<string>() },
+    parryOverlaps: { current: new OverlapCounter() },
     parryActive: { current: false },
     visualProbe: createActorVisualProbe(),
-    animCommand: { current: createAnimationCommand(STRAIGHT_SWORD.animations.combatIdle) },
+    animCommand: { current: createAnimationCommand(archetype.loadout.mainHand.animations.combatIdle) },
     actionTimeRef: { current: 0 },
     moveSpeed: { current: 0 },
-    locomotionWarp: { current: 0 },
+    animationSpeed: { current: 1 },
+    running: { current: false },
+    backstepAttackQueued: { current: false },
     guardHitUntil: 0,
     criticalLeadInTime: 0,
     position: start.clone(),
@@ -371,10 +399,10 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
         ref={runtime.handle}
         position={runtime.start}
         rotation={[0, runtime.startYaw, 0]}
-        maxWalkVel={ENEMY_LOCOMOTION.walkVel}
-        maxRunVel={ENEMY_LOCOMOTION.runVel}
-        accDeltaTime={0.2}
-        decDeltaTime={0.13}
+        maxWalkVel={runtime.archetype.locomotion.walkSpeed}
+        maxRunVel={runtime.archetype.locomotion.runSpeed}
+        accDeltaTime={runtime.archetype.locomotion.accelerationSeconds}
+        decDeltaTime={runtime.archetype.locomotion.decelerationSeconds}
         rejectVelFactor={0.92}
         airDragFactor={0.06}
         useCustomForward
@@ -395,18 +423,22 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
         <SkyrimFighter
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
-          weaponProfile={STRAIGHT_SWORD.visual}
+          weaponProfile={runtime.archetype.loadout.mainHand.visual}
+          speedMultiplierRef={runtime.animationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped
           enemy
           weaponRef={runtime.weapon}
           targetAnchorRef={runtime.targetAnchor}
+          hurtboxRef={runtime.hurtbox}
           visualProbe={validation ? runtime.visualProbe : undefined}
           visualSupportY={0}
         />
         <LockOnReticle visible={reticleVisible} anchor={runtime.targetAnchor} />
       </Ecctrl>
-      <CombatHurtbox controller={runtime.handle} name={runtime.hurtboxName} />
+      {HAS_SKELETAL_HURTBOX
+        ? <SkeletalHurtbox rig={runtime.hurtbox} name={runtime.hurtboxName} probe={validation} />
+        : <CapsuleHurtbox controller={runtime.handle} name={runtime.hurtboxName} />}
       <WeaponHitbox weapon={runtime.weapon} overlaps={runtime.overlaps} name={runtime.weaponName} active={runtime.hitboxActive} />
       <ParryShield
         controller={runtime.handle}
@@ -419,21 +451,26 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
 }
 
 function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
+  // The player's equipped weapon. Every moveset, animation and socket the
+  // player uses comes from here, so swapping the loadout swaps all of them.
+  const playerWeapon = PLAYER_LOADOUT.mainHand;
+  const playerGuard = useMemo(() => activeGuardProfile(PLAYER_LOADOUT), []);
   const playerStart = useMemo(
     () => visualScenario ? new THREE.Vector3(...visualScenario.player.position) : DEFAULT_PLAYER_START.clone(),
     [visualScenario],
   );
   const playerStartYaw = visualScenario?.player.yaw ?? Math.PI;
   const player = useRef<EcctrlHandle>(null);
-  const playerWeapon = useRef<THREE.Object3D>(null);
-  const playerWeaponOverlaps = useRef(new Set<string>());
-  const playerParryOverlaps = useRef(new Set<string>());
+  const playerWeaponObject = useRef<THREE.Object3D>(null);
+  const playerHurtbox = useRef<readonly HurtboxBone[] | null>(null);
+  const playerWeaponOverlaps = useRef(new OverlapCounter());
+  const playerParryOverlaps = useRef(new OverlapCounter());
   const playerHitboxActive = useRef(false);
   // Parry checks a wide shield zone in front of the player rather than the
   // weapon's own thin volume (see ParryShield) — landing a parry shouldn't
   // require exact blade-to-blade contact.
   const playerParryActive = useRef(false);
-  const playerAnimationCommand = useRef(createAnimationCommand(STRAIGHT_SWORD.animations.combatIdle));
+  const playerAnimationCommand = useRef(createAnimationCommand(playerWeapon.animations.combatIdle));
   const playerAction = useRef<CombatAction>("idle");
   const playerActionTime = useRef(0);
   const playerAttack = useRef<AttackDefinition | null>(null);
@@ -441,6 +478,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const playerAttackDirection = useRef(new THREE.Vector3(0, 0, 1));
   const comboQueued = useRef<"light" | "heavy" | null>(null);
   const rollAttackQueued = useRef<"light" | "heavy" | null>(null);
+  const backstepAttackQueued = useRef(false);
+  const backstepOrigin = useRef(new THREE.Vector3());
+  /**
+   * Metres the current attack's wind-up must cover. Zero means the attack uses
+   * its own authored lunge. The dash-in attack sets the ground it has to make
+   * back up, so the surge is derived from the retreat that actually happened
+   * rather than from a second hand-tuned speed.
+   */
+  const attackDashDistance = useRef(0);
   const healedThisAction = useRef(false);
   const playerHealth = useRef<number>(COMBAT_TUNING.maxHealth);
   const playerStamina = useRef<number>(COMBAT_TUNING.maxStamina);
@@ -453,7 +499,6 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const moveMagnitudeRef = useRef(0);
   const sprintingRef = useRef(false);
   const movementAllowedRef = useRef(true);
-  const playerLocomotionWarp = useRef(0);
   const playerLocomotionReversing = useRef(false);
   // Lock-on strafe/walk clips are authored for free-roam pace; nudging the
   // clip faster and the actual travel speed slightly slower brings the visual
@@ -613,7 +658,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     playerAction.current = action;
     playerActionTime.current = startAt;
     playerAttack.current = action === "light1" || action === "light2" || action === "light3" || action === "heavy" || action === "heavy2" || action === "riposte" || action === "backstab"
-      ? STRAIGHT_SWORD.attacks[action]
+      ? playerWeapon.attacks[action]
       : null;
     if (playerAttack.current) {
       const axis = direction ?? player.current?.bodyZAxis;
@@ -632,6 +677,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     playerAttackHit.current = false;
     comboQueued.current = null;
     if (action !== "roll") rollAttackQueued.current = null;
+    if (action !== "backstep") backstepAttackQueued.current = false;
+    attackDashDistance.current = 0;
     healedThisAction.current = false;
     if (action === "guard") guardHitUntil.current = 0;
     setAnim(animation, startAt, true, crossFadeDuration);
@@ -648,7 +695,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       setEnemyMode(
         abandonedVictim,
         "recover",
-        STRAIGHT_SWORD.animations.combatIdle,
+        playerWeapon.animations.combatIdle,
       );
     }
     playerAction.current = "idle";
@@ -657,16 +704,17 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     executionVictim.current = null;
     executionAlignmentStart.current = null;
     if (!lockedOn.current) player.current?.setLockForward(false);
-    setAnim(equipped.current ? STRAIGHT_SWORD.animations.combatIdle : "IDLE");
+    setAnim(equipped.current ? playerWeapon.animations.combatIdle : "IDLE");
   }, [setAnim, setEnemyMode]);
 
   const damageEnemy = useCallback((e: EnemyRuntime, execution: "riposte" | "backstab" | null = null) => {
     const attack = playerAttack.current;
     if (!attack) return false;
     const f = e.fighter;
+    const enemyWeapon = f.archetype.loadout.mainHand;
     const result = resolveHit(f.health, f.stamina, {
       attack,
-      guarding: f.state === "guard" && !execution,
+      guard: f.state === "guard" && !execution ? activeGuardProfile(f.archetype.loadout) : null,
       iframe: f.state === "dodge" && isRollInvulnerable(f.actionTime),
       execution,
     });
@@ -688,7 +736,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         ), true);
       }
       startPlayerAction("recoil", "RECOIL");
-      const guardHit = STRAIGHT_SWORD.animations.guard.hitVariants[nextGuardHitVariant.current % STRAIGHT_SWORD.animations.guard.hitVariants.length];
+      const guardHit = enemyWeapon.animations.guard.hitVariants[nextGuardHitVariant.current % enemyWeapon.animations.guard.hitVariants.length];
       nextGuardHitVariant.current += 1;
       e.guardHitUntil = f.actionTime + (clipPlaybackDuration(guardHit) ?? 0.8333);
       setEnemyAnim(e, guardHit, 0, true);
@@ -706,7 +754,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     if (result.kind === "guardBroken") {
       f.health = result.health;
       f.stamina = result.stamina;
-      setEnemyMode(e, "parried", STRAIGHT_SWORD.animations.guardBreak);
+      setEnemyMode(e, "parried", enemyWeapon.animations.guardBreak);
       announce("ENEMY GUARD BROKEN", 1.1);
       return true;
     }
@@ -728,7 +776,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       // The critical victim timeline was started before contact. Let its
       // profile continue through blade withdrawal and the selected recovery.
     } else {
-      f.staggerDuration = ENEMY_STATE_DURATIONS.staggerLight;
+      f.staggerDuration = f.archetype.stateDurations.staggerLight;
       setEnemyMode(e, "stagger", reaction.animation);
     }
     return true;
@@ -736,6 +784,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
 
   const attemptEnemyHit = useCallback((e: EnemyRuntime) => {
     const f = e.fighter;
+    const enemyWeapon = f.archetype.loadout.mainHand;
     if (f.attackHit || playerHealth.current <= 0) return;
     const handle = player.current;
     if (!handle) return;
@@ -751,7 +800,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       || playerAction.current === "riposte";
     const result = resolveHit(playerHealth.current, playerStamina.current, {
       attack,
-      guarding: playerAction.current === "guard" && equipped.current,
+      guard: playerAction.current === "guard" && equipped.current ? playerGuard : null,
       iframe: playerInvulnerable,
       execution: null,
       guardBreakDamage: 18,
@@ -776,7 +825,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         ), true);
       }
       setEnemyMode(e, "recoil", "RECOIL");
-      const guardHit = STRAIGHT_SWORD.animations.guard.hitVariants[nextGuardHitVariant.current % STRAIGHT_SWORD.animations.guard.hitVariants.length];
+      const guardHit = playerWeapon.animations.guard.hitVariants[nextGuardHitVariant.current % playerWeapon.animations.guard.hitVariants.length];
       nextGuardHitVariant.current += 1;
       guardHitUntil.current = playerActionTime.current + (clipConfig(guardHit).sourceDuration ?? 0.83);
       setAnim(guardHit, 0, true);
@@ -794,7 +843,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     if (result.kind === "guardBroken") {
       playerHealth.current = result.health;
       playerStamina.current = result.stamina;
-      startPlayerAction(result.killed ? "dead" : "guardBreak", result.killed ? "DEATH" : STRAIGHT_SWORD.animations.guardBreak);
+      startPlayerAction(result.killed ? "dead" : "guardBreak", result.killed ? "DEATH" : playerWeapon.animations.guardBreak);
       combatAudio.play("hit");
       triggerDamageVignette();
       triggerShake("playerHit", { x: handle.currPos.x - e.position.x, z: handle.currPos.z - e.position.z });
@@ -833,13 +882,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       for (let i = previous; i < current; i += 1) {
         const e = enemies[i];
         resetFighter(e.fighter);
-        e.fighter.attack = STRAIGHT_SWORD.attacks.light1;
+        e.fighter.attack = e.archetype.loadout.mainHand.attacks.light1;
         e.position.copy(e.start);
         e.overlaps.current.clear();
         e.hitboxActive.current = false;
         e.parryOverlaps.current.clear();
         e.parryActive.current = false;
-        setEnemyAnim(e, STRAIGHT_SWORD.animations.combatIdle, 0, true);
+        e.backstepAttackQueued.current = false;
+        e.running.current = false;
+        setEnemyAnim(e, e.archetype.loadout.mainHand.animations.combatIdle, 0, true);
       }
     } else if (current < previous) {
       for (let i = current; i < previous; i += 1) {
@@ -848,6 +899,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         e.hitboxActive.current = false;
         e.parryOverlaps.current.clear();
         e.parryActive.current = false;
+        e.backstepAttackQueued.current = false;
+        e.running.current = false;
         if (lockTargetIndex.current === e.id) {
           lockedOn.current = false;
           lockTargetIndex.current = -1;
@@ -913,9 +966,11 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     playerParryActive.current = false;
     comboQueued.current = null;
     rollAttackQueued.current = null;
+    backstepAttackQueued.current = false;
+    attackDashDistance.current = 0;
     for (const e of enemies) {
       resetFighter(e.fighter);
-      e.fighter.attack = STRAIGHT_SWORD.attacks[visualScenario?.enemy.attack ?? "light1"];
+      e.fighter.attack = e.archetype.loadout.mainHand.attacks[visualScenario?.enemy.attack ?? "light1"];
       e.fighter.yaw = visualScenario?.enemy.yaw ?? e.startYaw;
       if (visualScenario?.enemy.health !== undefined) e.fighter.health = visualScenario.enemy.health;
       if (visualScenario?.enemy.stamina !== undefined) e.fighter.stamina = visualScenario.enemy.stamina;
@@ -925,10 +980,11 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       e.hitboxActive.current = false;
       e.parryOverlaps.current.clear();
       e.parryActive.current = false;
+      e.backstepAttackQueued.current = false;
+      e.running.current = false;
       e.guardHitUntil = 0;
       e.criticalLeadInTime = 0;
       e.moveSpeed.current = 0;
-      e.locomotionWarp.current = 0;
       e.actionTimeRef.current = 0;
       const enemyHandle = e.handle.current;
       if (enemyHandle) {
@@ -943,9 +999,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         }, true);
         enemyHandle.setMovement({ joystick: { x: 0, y: 0 }, run: false, jump: false });
       }
-      setEnemyAnim(e, visualScenario?.enemy.animation ?? STRAIGHT_SWORD.animations.combatIdle, 0, true);
+      setEnemyAnim(e, visualScenario?.enemy.animation ?? e.archetype.loadout.mainHand.animations.combatIdle, 0, true);
     }
-    playerLocomotionWarp.current = 0;
     playerLocomotionReversing.current = false;
     playerMoveSpeed.current = 0;
     landingArmed.current = false;
@@ -979,7 +1034,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     camera.lookAt(cameraLook.current);
     message.current = visualScenario?.label ?? (resetToken > 0 ? "FIGHT RESTARTED" : "THE HOLLOW WARDEN");
     messageTimer.current = 1.2;
-    setAnim(equipped.current ? STRAIGHT_SWORD.animations.combatIdle : "IDLE", 0, true);
+    setAnim(equipped.current ? playerWeapon.animations.combatIdle : "IDLE", 0, true);
     visualDriver.current?.reset();
     visualObserved.current.playerActions.clear();
     visualObserved.current.playerAnimations.clear();
@@ -994,11 +1049,11 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         ready: false,
         done: false,
         playerAction: "idle",
-        playerAnimation: equipped.current ? STRAIGHT_SWORD.animations.combatIdle : "IDLE",
+        playerAnimation: equipped.current ? playerWeapon.animations.combatIdle : "IDLE",
         enemyAction: visualScenario.enemy.state,
         enemyAnimation: visualScenario.enemy.animation,
         playerHealth: playerHealth.current,
-        enemyHealth: enemies[0]?.fighter.health ?? ENEMY_MAX_HEALTH,
+        enemyHealth: enemies[0]?.fighter.health ?? enemies[0]?.archetype.maxHealth ?? 0,
         actorDistance: null,
         observedPlayerActions: [],
         observedPlayerAnimations: [],
@@ -1154,20 +1209,27 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       if (intent.lightPressed) rollAttackQueued.current = "light";
       if (intent.heavyPressed) rollAttackQueued.current = "heavy";
     }
+    // Tapping light during a backstep buys the dash-in attack: the retreat
+    // completes, then the actor closes most of the ground it just gave up and
+    // swings. Queued here rather than on release so the input is read during
+    // the animation, exactly as the roll attack is.
+    if (playerAction.current === "backstep" && equipped.current && intent.lightPressed) {
+      backstepAttackQueued.current = true;
+    }
 
     const canStartAction = playerAction.current === "idle" || playerAction.current === "guard";
     if (canStartAction && intent.equipPressed) {
       equipped.current = !equipped.current;
-      startPlayerAction(equipped.current ? "equip" : "unequip", equipped.current ? STRAIGHT_SWORD.animations.equip : STRAIGHT_SWORD.animations.unequip);
-      announce(equipped.current ? STRAIGHT_SWORD.label.toUpperCase() : "WEAPON STOWED");
+      startPlayerAction(equipped.current ? "equip" : "unequip", equipped.current ? playerWeapon.animations.equip : playerWeapon.animations.unequip);
+      announce(equipped.current ? playerWeapon.label.toUpperCase() : "WEAPON STOWED");
     } else if (canStartAction && intent.healPressed && estus.current > 0 && playerHealth.current < COMBAT_TUNING.maxHealth) {
       estus.current -= 1;
       startPlayerAction("heal", "HEAL");
       combatAudio.play("heal");
     } else if (canStartAction && intent.parryPressed && equipped.current && spendStamina(COMBAT_TUNING.parryCost)) {
-      startPlayerAction("parry", STRAIGHT_SWORD.animations.parry.intro);
+      startPlayerAction("parry", playerWeapon.animations.parry.intro);
       announce("SWORD PARRY", 0.55);
-    } else if (canStartAction && intent.heavyPressed && equipped.current && spendStamina(STRAIGHT_SWORD.attacks.heavy.stamina)) {
+    } else if (canStartAction && intent.heavyPressed && equipped.current && spendStamina(playerWeapon.attacks.heavy.stamina)) {
       startPlayerAction("heavy", "HEAVY");
       combatAudio.play("swing");
     } else if (canStartAction && intent.lightPressed && equipped.current) {
@@ -1180,7 +1242,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       for (const e of activeEnemies) {
         if (e.fighter.health <= 0) continue;
         const dist = Math.hypot(e.position.x - playerPos.x, e.position.z - playerPos.z);
-        if (e.fighter.state === "parried" && e.fighter.actionTime < 1.6 && dist < 2 && dist < bestRiposte) {
+        if (e.fighter.state === "parried" && e.fighter.actionTime < RIPOSTE_WINDOW && dist < 2 && dist < bestRiposte) {
           bestRiposte = dist;
           riposteVictim = e;
         }
@@ -1197,14 +1259,14 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       }
       const victim = riposteVictim ?? backstabVictim;
       const attack = riposteVictim
-        ? STRAIGHT_SWORD.attacks.riposte
+        ? playerWeapon.attacks.riposte
         : backstabVictim
-          ? STRAIGHT_SWORD.attacks.backstab
-          : STRAIGHT_SWORD.attacks.light1;
+          ? playerWeapon.attacks.backstab
+          : playerWeapon.attacks.light1;
       const criticalPair = attack.id === "riposte"
-        ? STRAIGHT_SWORD.animations.riposte
+        ? playerWeapon.animations.riposte
         : attack.id === "backstab"
-          ? STRAIGHT_SWORD.animations.backstab
+          ? playerWeapon.animations.backstab
           : null;
       if (spendStamina(attack.stamina)) {
         startPlayerAction(attack.id, attack.animation, 0, undefined, criticalPair?.entryBlendDuration ?? null);
@@ -1268,7 +1330,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         combatAudio.play("swing");
       }
     } else if (playerAction.current === "idle" && intent.guardHeld && equipped.current) {
-      startPlayerAction("guard", STRAIGHT_SWORD.animations.guard.enter);
+      startPlayerAction("guard", playerWeapon.animations.guard.enter);
       announce("GUARDING", 0.55);
     } else if (
       playerAction.current === "guard"
@@ -1290,7 +1352,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       } else {
         dodgeDirection.current.copy(handle.bodyZAxis).multiplyScalar(-1).setY(0).normalize();
       }
-      const initialSpeed = action === "roll" ? DODGE_SPEED.playerRoll : DODGE_SPEED.playerBackstep;
+      const initialSpeed = action === "roll" ? PLAYER_DODGE_SPEED.roll : PLAYER_DODGE_SPEED.backstep;
+      backstepOrigin.current.copy(playerPos);
       body.setLinvel({
         x: dodgeDirection.current.x * initialSpeed,
         // BACKSTEP's corrected source preserves its authored vertical COM hop.
@@ -1308,10 +1371,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       const transitionAt = comboTransitionTime(attack);
       const execution = attack.id === "riposte" ? "riposte" : attack.id === "backstab" ? "backstab" : null;
       const criticalPair = execution
-        ? execution === "riposte" ? STRAIGHT_SWORD.animations.riposte : STRAIGHT_SWORD.animations.backstab
+        ? execution === "riposte" ? playerWeapon.animations.riposte : playerWeapon.animations.backstab
         : null;
-      const attackDuration = attack.windup + attack.active + attack.recovery;
-      const executionProgress = playerActionTime.current / attackDuration;
+      const executionProgress = playerActionTime.current / attackDuration(attack);
       const victim = executionVictim.current;
       playerHitboxActive.current = weaponActive && equipped.current && enemyEnabled && aliveEnemies.length > 0;
       if (
@@ -1341,15 +1403,19 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         const yawDelta = Math.atan2(Math.sin(targetYaw - startYaw), Math.cos(targetYaw - startYaw));
         tmp.current.quaternion.setFromAxisAngle(UP, startYaw + yawDelta * alignmentProgress);
         body.setRotation(tmp.current.quaternion, true);
-      } else if (phase === "windup" && attack.lunge > 0) {
+      } else if (phase === "windup" && (attack.lunge > 0 || attackDashDistance.current > 0)) {
+        const dashSpeed = attackDashDistance.current > 0 && attack.windup > 0
+          ? attackDashDistance.current / attack.windup
+          : attack.lunge;
         body.setLinvel({
-          x: playerAttackDirection.current.x * attack.lunge,
+          x: playerAttackDirection.current.x * dashSpeed,
           y: body.linvel().y,
-          z: playerAttackDirection.current.z * attack.lunge,
+          z: playerAttackDirection.current.z * dashSpeed,
         }, true);
       } else if (phase === "recovery") {
         body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
       }
+      if (phase !== "windup") attackDashDistance.current = 0;
       const comboInputOpen = comboQueueOpen(playerActionTime.current, playerActionTime.current - delta, attack);
       if (comboInputOpen) {
         if (intent.lightPressed && (attack.id === "light1" || attack.id === "light2")) comboQueued.current = "light";
@@ -1376,7 +1442,13 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         }
         if (parriedBy) {
           playerAttackHit.current = true;
-          startPlayerAction("guardBreak", STRAIGHT_SWORD.animations.guardBreak);
+          startPlayerAction("guardBreak", playerWeapon.animations.guardBreak);
+          body.setLinvel(blockRecoilVelocity(
+            playerPos,
+            parriedBy.position,
+            body.linvel().y,
+            PARRY_RECOIL_SPEED,
+          ), true);
           // Keep the successful defender in its authored parry and follow-
           // through. Cutting directly to idle here made the enemy pop upright
           // in the exact interaction where its motion should read most clearly.
@@ -1431,15 +1503,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       playerParryActive.current = playerAction.current === "parry" && isParryActive(playerActionTime.current);
       if (playerAction.current === "guard"
         && playerActionTime.current >= Math.max(
-          clipConfig(STRAIGHT_SWORD.animations.guard.enter).sourceDuration ?? 0.83,
+          clipConfig(playerWeapon.animations.guard.enter).sourceDuration ?? 0.83,
           guardHitUntil.current,
         )) {
-        if (intent.guardHeld) setAnim(STRAIGHT_SWORD.animations.guard.loop);
+        if (intent.guardHeld) setAnim(playerWeapon.animations.guard.loop);
         else finishPlayerAction();
       }
       if (playerAction.current === "parry"
-        && playerActionTime.current >= (clipConfig(STRAIGHT_SWORD.animations.parry.intro).sourceDuration ?? 0.83)) {
-        setAnim(STRAIGHT_SWORD.animations.parry.followThrough);
+        && playerActionTime.current >= (clipConfig(playerWeapon.animations.parry.intro).sourceDuration ?? 0.83)) {
+        setAnim(playerWeapon.animations.parry.followThrough);
       }
       const duration = ACTION_DURATIONS[playerAction.current];
       if (playerAction.current === "heal" && playerActionTime.current > 0.82 && !healedThisAction.current) {
@@ -1449,7 +1521,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       if (duration && playerActionTime.current >= duration) {
         if (playerAction.current === "roll" && rollAttackQueued.current) {
           const queued = rollAttackQueued.current;
-          const queuedAttack = queued === "heavy" ? STRAIGHT_SWORD.attacks.heavy : STRAIGHT_SWORD.attacks.light1;
+          const queuedAttack = queued === "heavy" ? playerWeapon.attacks.heavy : playerWeapon.attacks.light1;
           const direction = resolveAttackDirection(intent.move, cameraYaw.current, handle.bodyZAxis);
           tmp.current.movement.set(direction.x, 0, direction.z).normalize();
           if (spendStamina(queuedAttack.stamina)) {
@@ -1465,30 +1537,62 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
             rollAttackQueued.current = null;
             finishPlayerAction();
           }
+        } else if (playerAction.current === "backstep" && backstepAttackQueued.current) {
+          // The retreat is over; close most of the ground it made and swing.
+          // The dash is measured from the distance actually travelled rather
+          // than assumed, so it stays correct if the backstep is retuned or
+          // gets cut short by a wall.
+          const queuedAttack = playerWeapon.attacks.light1;
+          const travelled = Math.hypot(
+            playerPos.x - backstepOrigin.current.x,
+            playerPos.z - backstepOrigin.current.z,
+          );
+          backstepAttackQueued.current = false;
+          if (spendStamina(queuedAttack.stamina)) {
+            tmp.current.movement
+              .copy(dodgeDirection.current)
+              .multiplyScalar(-1)
+              .setY(0)
+              .normalize();
+            tmp.current.quaternion.setFromAxisAngle(UP, Math.atan2(tmp.current.movement.x, tmp.current.movement.z));
+            handle.setForwardDir(tmp.current.movement);
+            handle.setLockForward(true);
+            body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+            body.setRotation(tmp.current.quaternion, true);
+            startPlayerAction(queuedAttack.id, queuedAttack.animation, 0, tmp.current.movement);
+            attackDashDistance.current = travelled * BACKSTEP_ATTACK_DASH_FRACTION;
+            combatAudio.play("swing");
+          } else {
+            finishPlayerAction();
+          }
         } else {
           finishPlayerAction();
         }
       }
     }
 
-    const movementAllowed = playerAction.current === "idle" || playerAction.current === "guard";
+    // Guarding is a planted stance: raising the weapon commits the feet, and
+    // the guard clips are authored standing still, so any residual travel
+    // would drag a stationary pose across the floor.
+    const guarding = playerAction.current === "guard";
+    const movementAllowed = playerAction.current === "idle";
     movementAllowedRef.current = movementAllowed;
     const lockOnMoveScale = lockedOn.current && moveMagnitude > 0.08 ? PLAYER_LOCK_ON_WALK_SPEED / PLAYER_WALK_SPEED : 1;
     // The controller retains horizontal authority through touchdown. Moving
     // landings use a short directional compression and crossfade quickly into
     // locomotion, so there is no planted stationary pose to skate across the
     // floor and no artificial mid-air/landing speed brake.
-    const movementScale = (playerAction.current === "guard" ? 0.42 : 1) * lockOnMoveScale;
-    handle.setMovement({
-      joystick: { x: intent.move.x * movementScale, y: intent.move.y * movementScale },
-      run: sprinting,
-      jump: intent.jumpHeld && playerAction.current === "idle" && playerStamina.current >= COMBAT_TUNING.jumpCost,
-    });
-    if (!movementAllowed) handle.setMovement({ joystick: { x: 0, y: 0 }, run: false, jump: false });
+    handle.setMovement(movementAllowed
+      ? {
+        joystick: { x: intent.move.x * lockOnMoveScale, y: intent.move.y * lockOnMoveScale },
+        run: sprinting,
+        jump: intent.jumpHeld && playerStamina.current >= COMBAT_TUNING.jumpCost,
+      }
+      : { joystick: { x: 0, y: 0 }, run: false, jump: false });
     // Ecctrl decelerates released input asymptotically, which leaves a brief
     // residual slide in the direction of travel. Snap planar velocity to zero
     // once there is no input at all, instead of waiting the friction out.
-    if (movementAllowed && moveMagnitude <= 0.01 && handle.isOnGround) {
+    if ((guarding || (movementAllowed && moveMagnitude <= 0.01)) && handle.isOnGround) {
       const settled = body.linvel();
       if (settled.x !== 0 || settled.z !== 0) body.setLinvel({ x: 0, y: settled.y, z: 0 }, true);
     }
@@ -1501,11 +1605,11 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     }
 
     if (playerAction.current === "roll") {
-      const speed = Math.max(1.8, DODGE_SPEED.playerRoll * (1 - playerActionTime.current / COMBAT_TUNING.rollDuration));
+      const speed = Math.max(1.8, PLAYER_DODGE_SPEED.roll * (1 - playerActionTime.current / COMBAT_TUNING.rollDuration));
       body.setLinvel({ x: dodgeDirection.current.x * speed, y: body.linvel().y, z: dodgeDirection.current.z * speed }, true);
     } else if (playerAction.current === "backstep") {
       const progress = Math.min(1, playerActionTime.current / (ACTION_DURATIONS.backstep ?? 0.52));
-      const speed = DODGE_SPEED.playerBackstep * (1 - progress) ** 1.35;
+      const speed = PLAYER_DODGE_SPEED.backstep * (1 - progress) ** 1.35;
       body.setLinvel({ x: dodgeDirection.current.x * speed, y: body.linvel().y, z: dodgeDirection.current.z * speed }, true);
     }
 
@@ -1517,14 +1621,6 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       const lockedLocomotion = lockWarp
         ? lockOnLocomotionAnimation(intent.move, moveMagnitude, lockWarp.reversing)
         : null;
-      playerLocomotionWarp.current = lockedLocomotion ? lockWarp?.warp ?? 0 : 0;
-      playerAnimationSpeed.current = jumpStartTimer.current > 0
-        ? (clipPlaybackSourceSpan("JUMP_START") ?? JUMP_LAUNCH_ANIMATION_DURATION) / JUMP_LAUNCH_ANIMATION_DURATION
-        : landingTimer.current > 0
-          ? (clipConfig(landingAnimation.current).sourceDuration ?? landingDuration.current) / landingDuration.current
-          : lockedLocomotion
-            ? 1.4
-            : 1;
       const locomotion = jumpStartTimer.current > 0
         ? "JUMP_START"
         : landingTimer.current > 0
@@ -1532,7 +1628,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           : !handle.isOnGround
             ? "JUMP_IDLE"
             : sprinting
-              ? STRAIGHT_SWORD.animations.sprintOverride ?? "SPRINT"
+              ? playerWeapon.animations.sprintOverride ?? "SPRINT"
               : lockedLocomotion
                 ? lockedLocomotion
               : moveMagnitude > 0.72
@@ -1540,11 +1636,20 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
                 : moveMagnitude > 0.08
                   ? "WALK"
                   : equipped.current
-                    ? STRAIGHT_SWORD.animations.combatIdle
+                    ? playerWeapon.animations.combatIdle
                     : "IDLE";
+      // Playback rate follows the actor, not a hand-picked constant: a stride
+      // authored for one ground speed skates at any other. Jump/landing and
+      // lock-on strafing keep their own authored fits.
+      playerAnimationSpeed.current = jumpStartTimer.current > 0
+        ? (clipPlaybackSourceSpan("JUMP_START") ?? JUMP_LAUNCH_ANIMATION_DURATION) / JUMP_LAUNCH_ANIMATION_DURATION
+        : landingTimer.current > 0
+          ? landingAnimationSpeed(landingDuration.current, landingAnimation.current)
+          : lockedLocomotion
+            ? 1.4
+            : locomotionSpeedMultiplier(locomotion, playerMoveSpeed.current);
       setAnim(locomotion);
     } else {
-      playerLocomotionWarp.current = 0;
       playerLocomotionReversing.current = false;
       playerAnimationSpeed.current = 1;
     }
@@ -1554,6 +1659,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     // enemy runs this independently against the shared player.
     for (const e of activeEnemies) {
       const f = e.fighter;
+      const archetype = f.archetype;
+      const weapon = archetype.loadout.mainHand;
       f.actionTime += delta;
       f.decisionTimer -= delta;
       f.staminaCooldown -= delta;
@@ -1579,12 +1686,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       if (!(f.state === "dead" || criticalVictimFrozen)) {
         const targetYaw = Math.atan2(dirX, dirZ);
         const yawDelta = Math.atan2(Math.sin(targetYaw - f.yaw), Math.cos(targetYaw - f.yaw));
-        const turnRate = f.state === "approach" || f.state === "strafe"
-          ? 2.15
-          : f.state === "watching"
-            ? 1.35
-            : f.state === "recover"
-                ? 0.3
+        const turnRates = archetype.locomotion.turnRate;
+        const turnRate = f.state === "approach"
+          ? turnRates.approach
+          : f.state === "strafe"
+            ? turnRates.strafe
+            : f.state === "watching"
+              ? turnRates.watching
+              : f.state === "recover"
+                ? turnRates.recover
                 : 0;
         f.yaw += THREE.MathUtils.clamp(yawDelta, -turnRate * delta, turnRate * delta);
       }
@@ -1614,31 +1724,42 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       } else if (!enemyAiEnabled && !visualScenario && f.health > 0 && !(f.state === "critical" || f.state === "criticalRecovery" || f.state === "stagger" || f.state === "parried")) {
         f.state = "watching";
         f.actionTime = 0;
-        setEnemyAnim(e, STRAIGHT_SWORD.animations.combatIdle);
+        setEnemyAnim(e, weapon.animations.combatIdle);
       } else if (f.state === "watching" || f.state === "approach") {
         // Scenarios replace only the nondeterministic intent choice. Both
         // scripted and AI choices go through this one production dispatcher,
         // so a visual test cannot make an animation pass by setting it directly.
         const scriptedCue = visualScenario ? visualDriver.current?.takeEnemyCue() : null;
-        let enemyIntent = scriptedCue?.intent ?? null;
-        if (!enemyIntent && enemyAiEnabled && f.decisionTimer <= 0) {
+        let enemyIntent: EnemyIntent | null = scriptedCue?.intent ?? null;
+        // Out at closing range, approach/strafe/lightCombo all score within
+        // noise of each other, so re-deciding every 0.3s made the enemy swap
+        // gait several times a second and stutter toward the player instead of
+        // running at them. Keep closing while still far, and give whatever it
+        // is already doing a commitment bonus once it is in range.
+        const stillClosing = f.state === "approach"
+          && distance > archetype.decision.closeWithoutRedecidingBeyond;
+        if (!enemyIntent && enemyAiEnabled && f.decisionTimer <= 0 && !stillClosing) {
           const playerPhase = playerAttack.current ? phaseAt(playerActionTime.current, playerAttack.current) : "none";
           enemyIntent = selectEnemyIntent({
             distance,
-            healthRatio: f.health / ENEMY_MAX_HEALTH,
+            healthRatio: f.health / f.maxHealth,
             stamina: f.stamina,
             estus: f.estus,
             playerAction: playerAction.current,
             playerPhase,
             playerRecovering: playerPhase === "recovery" || playerAction.current === "heal",
             personality: f.personality,
+            previousIntent: f.lastIntent as EnemyIntent | null,
+            commitmentBonus: archetype.decision.commitmentBonus,
           });
-          f.decisionTimer = ENEMY_LOCOMOTION.decisionMin + Math.random() * ENEMY_LOCOMOTION.decisionJitter;
+          f.decisionTimer = archetype.decision.intervalSeconds
+            + Math.random() * archetype.decision.intervalJitterSeconds;
         }
+        if (enemyIntent) f.lastIntent = enemyIntent;
         if (enemyIntent) {
           if (enemyIntent === "lightCombo") {
-            f.attack = STRAIGHT_SWORD.attacks[scriptedCue?.attack ?? "light1"];
-            f.comboRemaining = scriptedCue?.comboRemaining ?? 2;
+            f.attack = weapon.attacks[scriptedCue?.attack ?? "light1"];
+            f.comboRemaining = scriptedCue?.comboRemaining ?? archetype.decision.comboLength;
             f.stamina -= f.attack.stamina;
             f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
             setEnemyMode(e, "attack", f.attack.animation);
@@ -1646,17 +1767,17 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
             const scriptedHeavy = scriptedCue?.attack === "heavy" || scriptedCue?.attack === "heavy2"
               ? scriptedCue.attack
               : null;
-            f.attack = STRAIGHT_SWORD.attacks[scriptedHeavy ?? (Math.random() > 0.55 ? "heavy2" : "heavy")];
+            f.attack = weapon.attacks[scriptedHeavy ?? (Math.random() > 0.55 ? "heavy2" : "heavy")];
             f.comboRemaining = 0;
             f.stamina -= f.attack.stamina;
             f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
             setEnemyMode(e, "attack", f.attack.animation);
           } else if (enemyIntent === "guard") {
-            setEnemyMode(e, "guard", STRAIGHT_SWORD.animations.guard.enter);
+            setEnemyMode(e, "guard", weapon.animations.guard.enter);
           } else if (enemyIntent === "parry") {
             f.stamina -= COMBAT_TUNING.parryCost;
             f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
-            setEnemyMode(e, "parry", STRAIGHT_SWORD.animations.parry.intro);
+            setEnemyMode(e, "parry", weapon.animations.parry.intro);
           } else if (enemyIntent === "dodge") {
             const side = scriptedCue?.side ?? (Math.random() > 0.5 ? 1 : -1);
             e.dodgeDirection.set(dirZ * side, 0, -dirX * side);
@@ -1668,6 +1789,12 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
             e.dodgeDirection.set(-dirX, 0, -dirZ);
             f.stamina -= COMBAT_TUNING.backstepCost;
             f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
+            // Decide up front whether this retreat is a reset or a feint into
+            // the dash-in attack, so the follow-up is telegraphed by the same
+            // stamina reservation the player has to make.
+            e.backstepAttackQueued.current = !scriptedCue
+              && f.stamina >= weapon.attacks.light1.stamina
+              && Math.random() < archetype.decision.backstepAttackChance;
             setEnemyMode(e, "backstep", "BACKSTEP");
             combatAudio.play("roll");
           } else if (enemyIntent === "heal") {
@@ -1684,25 +1811,33 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         }
         if (f.state === "approach") {
           enemyMoveY = 1;
-          enemyRunning = distance > ENEMY_LOCOMOTION.runDistance;
-          setEnemyAnim(e, enemyRunning ? "RUN" : "WALK");
+          // Hysteresis, not one threshold: an enemy hovering on a single
+          // distance flipped between the run and walk clip every frame.
+          const gait = archetype.locomotion;
+          enemyRunning = e.running.current
+            ? distance > gait.walkBelowDistance
+            : distance > gait.runAboveDistance;
+          e.running.current = enemyRunning;
+          setEnemyAnim(e, enemyRunning ? gait.runAnimation : gait.walkAnimation);
         } else if (f.state === "watching") {
-          setEnemyAnim(e, STRAIGHT_SWORD.animations.combatIdle);
+          setEnemyAnim(e, weapon.animations.combatIdle);
         }
       } else if (f.state === "strafe") {
         enemyMoveX = f.strafeSide;
-        setEnemyAnim(e, f.strafeSide < 0 ? "STRAFE_LEFT" : "STRAFE_RIGHT");
-        if (f.actionTime > ENEMY_STATE_DURATIONS.strafe) {
-          setEnemyMode(e, "watching", STRAIGHT_SWORD.animations.combatIdle);
+        setEnemyAnim(e, f.strafeSide < 0
+          ? archetype.locomotion.strafeAnimations.left
+          : archetype.locomotion.strafeAnimations.right);
+        if (f.actionTime > archetype.stateDurations.strafe) {
+          setEnemyMode(e, "watching", weapon.animations.combatIdle);
         }
       } else if (f.state === "attack") {
-        const attack = f.attack ?? STRAIGHT_SWORD.attacks.light1;
+        const attack = f.attack ?? weapon.attacks.light1;
         const phase = phaseAt(f.actionTime, attack);
         const weaponActive = isWeaponHitboxActive(f.actionTime, attack);
         const transitionAt = comboTransitionTime(attack);
         e.hitboxActive.current = weaponActive && f.health > 0;
         if (phase === "windup" && f.actionTime <= delta * 1.5) combatAudio.play("swing");
-        if (phase === "windup" && distance > 1.05 && enemyHandle) {
+        if (phase === "windup" && distance > archetype.lungeBeyondDistance && enemyHandle) {
           enemyHandle.body.setLinvel({
             x: dirX * attack.lunge,
             y: enemyHandle.body.linvel().y,
@@ -1718,7 +1853,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
             || playerWeaponOverlaps.current.has(e.weaponName)
           )
         ) {
-          setEnemyMode(e, "parried", STRAIGHT_SWORD.animations.guardBreak);
+          setEnemyMode(e, "parried", weapon.animations.guardBreak);
+          if (enemyHandle) {
+            enemyHandle.body.setLinvel(blockRecoilVelocity(
+              e.position,
+              playerPos,
+              enemyHandle.body.linvel().y,
+              PARRY_RECOIL_SPEED,
+            ), true);
+          }
           combatAudio.play("parry");
           announce("WEAPONS CLASHED — LIGHT ATTACK TO RIPOSTE", 1.5);
           triggerShake("parry", { x: playerPos.x - e.position.x, z: playerPos.z - e.position.z });
@@ -1732,11 +1875,11 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           attemptEnemyHit(e);
         }
         const nextCombo = f.comboRemaining === 2
-          ? STRAIGHT_SWORD.attacks.light2
+          ? weapon.attacks.light2
           : f.comboRemaining === 1
-            ? STRAIGHT_SWORD.attacks.light3
+            ? weapon.attacks.light3
             : null;
-        if (nextCombo && f.actionTime >= transitionAt && f.stamina >= nextCombo.stamina && distance < 2.75) {
+        if (nextCombo && f.actionTime >= transitionAt && f.stamina >= nextCombo.stamina && distance < archetype.comboFollowUpRange) {
           f.comboRemaining -= 1;
           f.stamina -= nextCombo.stamina;
           f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
@@ -1746,7 +1889,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           combatAudio.play("swing");
         } else if (phase === "none") {
           f.comboRemaining = 0;
-          setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+          setEnemyMode(e, "recover", weapon.animations.combatIdle);
         }
       } else if (f.state === "guard") {
         e.hitboxActive.current = true;
@@ -1758,9 +1901,10 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           currentAnimation: e.animCommand.current.state,
           guardHitUntil: e.guardHitUntil,
           holdInitialState: Boolean(holdingScenarioPrerequisite),
+          tacticalDuration: enemyGuardTacticalDuration(archetype.stateDurations.guard),
         });
         if (guardStep.shouldExit) {
-          setEnemyMode(e, "watching", STRAIGHT_SWORD.animations.combatIdle);
+          setEnemyMode(e, "watching", weapon.animations.combatIdle);
         } else if (guardStep.nextAnimation) {
           setEnemyAnim(e, guardStep.nextAnimation);
         }
@@ -1768,15 +1912,17 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         const parryActive = isParryActive(f.actionTime);
         e.hitboxActive.current = parryActive;
         e.parryActive.current = parryActive;
-        if (f.actionTime >= (clipConfig(STRAIGHT_SWORD.animations.parry.intro).sourceDuration ?? 0.83)) {
-          setEnemyAnim(e, STRAIGHT_SWORD.animations.parry.followThrough);
+        if (f.actionTime >= (clipConfig(weapon.animations.parry.intro).sourceDuration ?? 0.83)) {
+          setEnemyAnim(e, weapon.animations.parry.followThrough);
         }
-        if (f.actionTime > ENEMY_STATE_DURATIONS.parry) {
-          setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+        if (f.actionTime > ENEMY_SHARED_DURATIONS.parry) {
+          setEnemyMode(e, "recover", weapon.animations.combatIdle);
         }
       } else if (f.state === "dodge" || f.state === "backstep") {
         const duration = f.state === "dodge" ? COMBAT_TUNING.rollDuration : 0.52;
-        const initialSpeed = f.state === "dodge" ? DODGE_SPEED.enemyRoll : DODGE_SPEED.enemyBackstep;
+        const initialSpeed = f.state === "dodge"
+          ? archetype.dodgeSpeed.roll
+          : archetype.dodgeSpeed.backstep * BACKSTEP_DISTANCE_MULTIPLIER;
         const progress = Math.min(1, f.actionTime / duration);
         if (enemyHandle) {
           const speed = initialSpeed * (1 - progress) ** 1.25;
@@ -1787,18 +1933,33 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           }, true);
         }
         if (f.actionTime >= duration) {
-          setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+          if (f.state === "backstep" && e.backstepAttackQueued.current) {
+            // Same exchange the player gets: give ground, then buy it back with
+            // a committed swing. The wind-up lunge covers the agreed fraction
+            // of the retreat.
+            const dash = weapon.attacks.light1;
+            e.backstepAttackQueued.current = false;
+            f.attack = dash;
+            f.comboRemaining = 0;
+            f.stamina -= dash.stamina;
+            f.staminaCooldown = COMBAT_TUNING.staminaRegenDelay;
+            setEnemyMode(e, "attack", dash.animation);
+            combatAudio.play("swing");
+          } else {
+            e.backstepAttackQueued.current = false;
+            setEnemyMode(e, "recover", weapon.animations.combatIdle);
+          }
         }
       } else if (f.state === "heal") {
         if (f.actionTime > 0.82 && !f.healed) {
           f.healed = true;
-          f.health = Math.min(ENEMY_MAX_HEALTH, f.health + COMBAT_TUNING.healAmount);
+          f.health = Math.min(f.maxHealth, f.health + COMBAT_TUNING.healAmount);
           combatAudio.play("heal");
         }
         if (f.actionTime > COMBAT_TUNING.healDuration) {
-          setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+          setEnemyMode(e, "recover", weapon.animations.combatIdle);
         }
-      } else if (f.state === "recover" && f.actionTime > ENEMY_STATE_DURATIONS.recover) {
+      } else if (f.state === "recover" && f.actionTime > archetype.stateDurations.recover) {
         f.decisionTimer = 0;
         // Recovery already entered the combat-idle clip. Changing only the
         // tactical state must not invisibly restart that same animation and
@@ -1807,19 +1968,19 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         f.actionTime = 0;
         f.attackHit = false;
         e.guardHitUntil = 0;
-        setEnemyAnim(e, STRAIGHT_SWORD.animations.combatIdle);
+        setEnemyAnim(e, weapon.animations.combatIdle);
       } else if (f.state === "stagger" && f.actionTime > f.staggerDuration) {
-        setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+        setEnemyMode(e, "recover", weapon.animations.combatIdle);
       } else if (f.state === "recoil" && f.actionTime > BLOCK_RECOIL_DURATION) {
         f.decisionTimer = 0.2;
-        setEnemyMode(e, "watching", STRAIGHT_SWORD.animations.combatIdle);
+        setEnemyMode(e, "watching", weapon.animations.combatIdle);
       } else if (f.state === "parried"
         && !(visualScenario?.enemy.holdInitialState && f.state === visualScenario.enemy.state)
-        && f.actionTime > ENEMY_STATE_DURATIONS.parried) {
-        setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+        && f.actionTime > ENEMY_SHARED_DURATIONS.parried) {
+        setEnemyMode(e, "recover", weapon.animations.combatIdle);
       } else if (f.state === "critical") {
-        const criticalAttack = f.criticalType === "riposte" ? STRAIGHT_SWORD.attacks.riposte : STRAIGHT_SWORD.attacks.backstab;
-        const criticalPair = f.criticalType === "riposte" ? STRAIGHT_SWORD.animations.riposte : STRAIGHT_SWORD.animations.backstab;
+        const criticalAttack = f.criticalType === "riposte" ? weapon.attacks.riposte : weapon.attacks.backstab;
+        const criticalPair = f.criticalType === "riposte" ? weapon.animations.riposte : weapon.animations.backstab;
         const victimPlayback = criticalVictimPlaybackAt(playerActionTime.current, criticalAttack, criticalPair);
         const victimDeath = criticalVictimDeathPlayback(criticalPair);
         const victimRecovery = criticalVictimRecoveryPlayback(criticalPair);
@@ -1868,19 +2029,23 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         }
       } else if (f.state === "criticalRecovery" && f.health > 0) {
         const criticalPair = f.criticalType === "riposte"
-          ? STRAIGHT_SWORD.animations.riposte
-          : STRAIGHT_SWORD.animations.backstab;
+          ? weapon.animations.riposte
+          : weapon.animations.backstab;
         const victimRecovery = criticalVictimRecoveryPlayback(criticalPair);
         if (f.actionTime >= victimRecovery.endAt) {
           f.criticalType = null;
           if (executionVictim.current === e) executionVictim.current = null;
-          setEnemyMode(e, "recover", STRAIGHT_SWORD.animations.combatIdle);
+          setEnemyMode(e, "recover", weapon.animations.combatIdle);
         }
       }
       enemyHandle?.setMovement({ joystick: { x: enemyMoveX, y: enemyMoveY }, run: enemyRunning, jump: false });
-      e.locomotionWarp.current = f.state === "strafe"
-        ? lockOnOrientationWarp({ x: enemyMoveX, y: enemyMoveY }).warp
-        : 0;
+      // A stride authored for one ground speed scrubs at any other, and an
+      // enemy that changes gait mid-approach changes speed sharply. Following
+      // the measured authored speed keeps the contact cadence honest.
+      e.animationSpeed.current = locomotionSpeedMultiplier(
+        e.animCommand.current.state,
+        e.moveSpeed.current,
+      );
       if (enemyHandle && (f.state === "critical" || f.state === "criticalRecovery" || f.state === "dead")) {
         enemyHandle.body.setLinvel({ x: 0, y: enemyHandle.body.linvel().y, z: 0 }, true);
       }
@@ -2089,18 +2254,21 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         <SkyrimFighter
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
-          weaponProfile={STRAIGHT_SWORD.visual}
+          weaponProfile={playerWeapon.visual}
           speedMultiplierRef={playerAnimationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped={equipped.current}
           equippedRef={equipped}
-          weaponRef={playerWeapon}
+          weaponRef={playerWeaponObject}
+          hurtboxRef={playerHurtbox}
           visualProbe={visualScenario ? playerVisualProbe.current : undefined}
           visualSupportY={0}
         />
       </Ecctrl>
-      <CombatHurtbox controller={player} name={PLAYER_HURTBOX_NAME} />
-      <WeaponHitbox weapon={playerWeapon} overlaps={playerWeaponOverlaps} name="player-weapon" active={playerHitboxActive} />
+      {HAS_SKELETAL_HURTBOX
+        ? <SkeletalHurtbox rig={playerHurtbox} name={PLAYER_HURTBOX_NAME} probe={Boolean(visualScenario)} />
+        : <CapsuleHurtbox controller={player} name={PLAYER_HURTBOX_NAME} />}
+      <WeaponHitbox weapon={playerWeaponObject} overlaps={playerWeaponOverlaps} name="player-weapon" active={playerHitboxActive} />
       <ParryShield controller={player} overlaps={playerParryOverlaps} name="player-parry-shield" active={playerParryActive} />
       <AnalogueSpeedLimiter
         controller={player}

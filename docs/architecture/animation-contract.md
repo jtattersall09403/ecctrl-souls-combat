@@ -24,20 +24,32 @@ the pipeline. To reskin an animation (e.g. a nicer `ROLL`), change the pipeline
 manifest and rebuild the GLB — no game-code change.
 
 `rootMotion: "strip"` vs `"consume"` in the manifest is currently **informational
-only** — `rootMotionDelta` is recorded but never read at runtime; every clip's
-root bone curve is unconditionally removed at build time regardless of this
-label. Two pipeline flags (on the animation config entry, not the manifest) are
-the ones that actually change build behaviour:
+only** — `rootMotionDelta` is recorded but never read at runtime. What actually
+changes build behaviour is the root-motion policy, whose **default is: the
+controller owns planar travel and the authored vertical COM channel survives**
+(Skyrim humanoid COM local axis 2, native Z, which exports as GLB world Y). Do
+not generalize that axis index to another rig without a transform-aware source
+and post-export audit. Three pipeline flags (on the animation config entry, not
+the manifest) modify it:
 
 - `preserveRootMotion` skips stripping entirely, for stationary loops (`IDLE`,
   `SWORD_IDLE`, `GUARD`) whose authored root sway keeps the feet planted —
   stripping a net-zero-but-oscillating curve anyway freezes the torso while the
   untouched leg curves still slide the feet.
-- `preserveVerticalRootMotion` preserves the verified Skyrim humanoid COM local
-  axis 2 (native Z), which exports as GLB world Y. Do not generalize that index
-  to another rig without a transform-aware source and post-export audit;
-  `preserveRootMotionAxes` is the explicit escape hatch. Planar travel remains
-  controller-owned. The manifest's 30 Hz deformed-surface curves and
+- `stripVerticalRootMotion` opts *out* of the default, for the clips whose
+  height the physics controller owns (`JUMP_START`, `JUMP_IDLE`). Preserving
+  the authored launch there would add to the controller's jump arc.
+- `preserveRootMotionAxes` is the explicit per-axis escape hatch for an
+  exceptional rig.
+
+Vertical COM used to be stripped by default, which is what made almost every
+action hover: the torso stayed pinned at its rest height while the legs kept
+their authored crouch, lunge or stagger, so the feet came up to meet the body
+instead of the body settling onto the feet. Measured on the built GLB, the
+guard entry sat 0.26 m off the floor for its whole 0.83 s, the parry 0.23 m,
+guard-hit 0.19 m, and every walk/strafe cycle 0.03–0.08 m. Only the clips that
+happened to carry an explicit preserve flag were correct — which is exactly why
+the symptom looked like "idle is fine, everything else floats". The manifest's 30 Hz deformed-surface curves and
   identity-preserving bone-local heel/toe points keep ground-bound clips above
   the support plane without pinning declared airborne motion or skinning every
   mesh at gameplay runtime. During a material ground-bound crossfade, runtime
@@ -54,16 +66,28 @@ last frame from the very first rendered frame. Self-timing sidesteps that
 entirely — don't move a state out of `LOCOMOTION_STATES` unless its combat
 action clock is actually reset at entry.
 
+## Weapon sockets
+
+A weapon GLB keeps its native NIF attach-node axes, while the imported armature
+stores bones in Blender's convention. The fixed rotation between those two
+frames belongs to the **rig**, not to any item, so the pipeline emits it once as
+`rig.socketRotation` and `SkyrimFighter` applies it to every socket mount. A
+weapon definition's `localRotation` is therefore identity unless that item
+genuinely wants an offset of its own. Do not hand-tune a per-weapon quaternion:
+the previous one was 90° out, which put the blade along the forearm instead of
+through the fist, and any contact timing audited against it is stale.
+
 ## Weapon-type scalability
 
 Every weapon-specific animation is data on `WeaponDefinition.animations`
-(`src/game/combat/weapon.ts`): combat idle/sprint override, guard enter/loop/hit
+(`src/game/equipment/`): combat idle/sprint override, guard enter/loop/hit
 variants, two-stage parry, light/heavy actions, guard break, equip, and paired
 critical actions. A critical profile also owns victim action, alignment,
 separation, facing, damage point, release point, and root-motion policy. Combat
 logic reads that profile rather than equating `GUARD` or `BACKSTAB` with one-
-handed swords forever. Actually selecting a different definition per fighter
-(today all actors use `STRAIGHT_SWORD`) remains a future inventory step.
+handed swords forever. Actors now resolve their weapon from a `Loadout` (the
+player from `PLAYER_LOADOUT`, an enemy from its archetype), so a second weapon
+is data; an inventory that swaps loadouts at runtime remains the next step.
 
 The sword profile stores the audited physical separation, relative facing,
 victim anchor, contact/release progress, victim start phase, explicit recovery
@@ -122,12 +146,28 @@ This permits sequences such as `PARRY` → `PARRY_FOLLOW_THROUGH` and
 `GUARD_ENTER` → looping `GUARD` without resetting the gameplay parry/guard
 clock or clamping the second clip to its last frame.
 
+## Locomotion cadence
+
+Every stride is authored for one ground speed. The pipeline measures it — the
+planar velocity of a planted sole, median over every stance sample — and bakes
+it per clip as `authoredGroundSpeed` (WALK 0.89 m/s, RUN 4.98, SPRINT 5.17,
+STRAFE ~0.80, WALK_BACK 0.69). `locomotionSpeedMultiplier` divides the actor's
+real speed by it and clamps the result to 0.6–1.8×, so a clip played at any
+other speed keeps its contact cadence instead of scrubbing. Both the player and
+each enemy use it. This is what stops an enemy dropping out of a run mid-
+approach from reading as a stutter: its gait speed halves, and without cadence
+matching the clip does not.
+
 ## Moving landings
 
 Touchdown records controller planar velocity and peak downward velocity.
 `selectLandingAnimation` classifies stationary/moving/sprint/hard landings and
-chooses a visual duration: 0.58 s stationary, 0.42 s moving, 0.36 s at sprint
-speed, or 0.46 s for a hard impact. A 0.18 s entry blend and floor-contact
+chooses a visual duration: 0.58 s stationary, 0.24 s moving, 0.18 s at sprint
+speed, or 0.46 s for a hard impact. A moving landing is deliberately short: the
+touchdown pose is planted while the controller keeps its horizontal speed, so
+holding it is exactly what reads as skating. Playback is capped at 2× by
+`landingAnimationSpeed` and the clip is cross-faded out mid-recovery rather than
+compressed whole. A 0.18 s entry blend and floor-contact
 support policy preserve the touchdown through both entry and locomotion exit;
 the controller keeps full horizontal authority throughout. Vanilla
 `mt_jumplandleft/right` are present in the GLB for comparison but are not

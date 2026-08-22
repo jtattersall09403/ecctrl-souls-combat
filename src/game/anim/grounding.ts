@@ -53,13 +53,24 @@ export function crossFadeSoleClearance(
     : clearance;
 }
 
-/** Marker proxies are only needed for nonlinear, ground-bound blend poses. */
+/**
+ * Marker proxies are only needed for nonlinear, ground-bound blend poses.
+ *
+ * The threshold is deliberately tiny rather than a "material" 5%. Two clips
+ * authored at different stance heights (a standing idle blending into a
+ * crouched guard) develop their blended-pose penetration continuously from the
+ * first blend frame, so switching the proxy on partway through discovers a
+ * fully-formed penetration and corrects it in a single step — a visible hop.
+ * Engaging from the start lets the same correction grow smoothly; at near-zero
+ * incoming weight the blended pose is the outgoing pose, whose own envelope
+ * already agrees, so nothing is over-corrected.
+ */
 export function usesCrossFadeSoleProxy(
   incomingMode: SupportMode,
   outgoingMode: SupportMode | null,
   incomingWeight: number,
   outgoingWeight: number,
-  materialWeight = 0.05,
+  materialWeight = 0.002,
 ) {
   if (incomingWeight < materialWeight || outgoingWeight < materialWeight) return false;
   if (incomingMode === "floor-contact") return true;
