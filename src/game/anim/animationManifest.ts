@@ -240,6 +240,19 @@ export const LOCOMOTION_STATES: ReadonlySet<AnimationState> = new Set<AnimationS
   "JUMP_LAND",
   "JUMP_LAND_LEFT",
   "JUMP_LAND_RIGHT",
+  // Carrying a bow is ordinary locomotion: self-timed, and scaled to the
+  // actor's ground speed like every other stride.
+  "BOW_IDLE",
+  "BOW_WALK",
+  "BOW_WALK_BACK",
+  "BOW_STRAFE_LEFT",
+  "BOW_STRAFE_RIGHT",
+  "BOW_RUN",
+  // Held at full draw is a *loop*, like a raised guard: it should run on its
+  // own clock and wrap cleanly. Driving it from the action clock walks it
+  // further into the source idle the longer the string is held, which is how a
+  // three-second hold ends up somewhere the clip never meant to be.
+  "BOW_DRAWN",
 ]);
 
 /** Every semantic state the built GLB is expected to contain. */

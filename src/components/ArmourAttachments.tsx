@@ -18,6 +18,8 @@ export function ArmourAttachments({
   model,
   armour,
   bodyMeshSlots,
+  hideTorso = false,
+  hideHands = false,
   onMountedChange,
 }: {
   /** The actor's cloned race body, already in the scene. */
@@ -25,6 +27,17 @@ export function ArmourAttachments({
   armour: readonly ArmourDefinition[];
   /** The wearer's per-mesh biped slots, from the race roster. */
   bodyMeshSlots: Readonly<Record<string, readonly number[]>>;
+  /**
+   * Hide anything covering the torso.
+   *
+   * A first-person camera sits inside the wearer's chest, and a cuirass with
+   * pauldrons fills the whole view the moment the draw turns the shoulders into
+   * it. Skyrim shows first-person gauntlets and nothing else for the same
+   * reason.
+   */
+  hideTorso?: boolean;
+  /** Hide anything on the hands, for the same reason. */
+  hideHands?: boolean;
   /**
    * Called with the mount result, and with null on unmount. The parent uses it
    * to re-collect skinned meshes — which is what keeps armour inside the
@@ -54,12 +67,14 @@ export function ArmourAttachments({
     for (const problem of mounted.problems) {
       console.warn(`[armour] ${problem.id}: ${problem.reason}`);
     }
+    for (const mesh of mounted.torsoMeshes) mesh.visible = !hideTorso;
+    for (const mesh of mounted.handMeshes) mesh.visible = !hideHands;
     onMountedChange?.(mounted);
     return () => {
       unmountArmour(mounted);
       onMountedChange?.(null);
     };
-  }, [model, armour, loaded, bodyMeshSlots, onMountedChange]);
+  }, [model, armour, loaded, bodyMeshSlots, hideHands, hideTorso, onMountedChange]);
 
   return null;
 }

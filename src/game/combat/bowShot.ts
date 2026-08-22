@@ -214,11 +214,23 @@ export function aimBlend(cycle: BowCycle) {
  * than an animation running alongside it. A draw that stalls for stamina stalls
  * on screen, and one that slips home slips home on screen.
  */
-export function bowPose(cycle: BowCycle, bow: BowAnimationProfile): {
+export function bowPose(
+  cycle: BowCycle,
+  bow: BowAnimationProfile,
+  /** Which way the archer is walking, if at all. */
+  travel: BowTravel = STANDING,
+): {
   animation: AnimationState;
   /** Clip seconds to hold, or null to let the clip run on its own clock. */
   clipTime: number | null;
 } {
+  // Walking with the string at rest gets real feet. Walking *at draw* keeps the
+  // draw, because the pose is what the player is looking down in first person
+  // and this actor has one animation track to spend. Correct feet under a drawn
+  // bow needs upper/lower-body blending, which the rig does not have yet.
+  if (travel !== "still" && cycle.phase !== "drawing") {
+    return { animation: bow.locomotion[travel], clipTime: null };
+  }
   switch (cycle.phase) {
     case "drawing":
       return cycle.drawFraction >= 1
@@ -229,6 +241,19 @@ export function bowPose(cycle: BowCycle, bow: BowAnimationProfile): {
     default:
       return { animation: bow.idle, clipTime: null };
   }
+}
+
+/** How the archer is moving, as the locomotion set names it. */
+export type BowTravel = "still" | "walk" | "walkBack" | "strafeLeft" | "strafeRight" | "run";
+
+const STANDING: BowTravel = "still";
+
+/** Resolve a movement stick into the bow-carry clip it should show. */
+export function bowTravelFor(move: { x: number; y: number }, magnitude: number): BowTravel {
+  if (magnitude <= 0.12) return "still";
+  if (Math.abs(move.x) > Math.abs(move.y)) return move.x > 0 ? "strafeRight" : "strafeLeft";
+  if (move.y < 0) return "walkBack";
+  return magnitude > 0.85 ? "run" : "walk";
 }
 
 /** Authored length of the draw clip, which the draw fraction is mapped onto. */

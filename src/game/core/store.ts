@@ -27,6 +27,7 @@ export const initialSnapshot: GameSnapshot = {
   showHitboxes: false,
   resetToken: 0,
   aiming: false,
+  bowPhase: "lowered" as const,
   drawFraction: 0,
   arrowsLeft: 0,
 };

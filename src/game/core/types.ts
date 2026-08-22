@@ -1,3 +1,5 @@
+import type { BowPhase } from "../combat/bowShot";
+
 export type Vec2 = { x: number; y: number };
 
 export type CombatAction =
@@ -121,6 +123,8 @@ export type GameSnapshot = {
   resetToken: number;
   /** A bow is raised: the view is first person and the crosshair is up. */
   aiming: boolean;
+  /** Where in the shooting cycle the bow is, for the view to follow. */
+  bowPhase: BowPhase;
   /** 0-1 of full draw, for the crosshair to open on. */
   drawFraction: number;
   /** Arrows of the equipped kind still in the quiver. */

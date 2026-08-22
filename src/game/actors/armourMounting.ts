@@ -25,9 +25,17 @@ export type ArmourPiece = {
   coversBipedSlots: readonly number[];
 };
 
+/** Biped slots, in Bethesda's numbering. */
+export const TORSO_BIPED_SLOT = 32;
+export const HANDS_BIPED_SLOT = 33;
+
 export type MountedArmour = {
   /** Meshes now bound to the actor's skeleton, in mount order. */
   meshes: THREE.SkinnedMesh[];
+  /** Meshes covering the torso, which a first-person view puts the camera in. */
+  torsoMeshes: THREE.SkinnedMesh[];
+  /** Meshes on the hands, which sit at arm's length from a first-person eye. */
+  handMeshes: THREE.SkinnedMesh[];
   /** Body meshes hidden underneath, so they can be restored on unequip. */
   hidden: THREE.Mesh[];
   /** Pieces that could not bind, with the reason. Never throws on bad content. */
@@ -63,7 +71,9 @@ export function mountArmour(
   pieces: readonly ArmourPiece[],
   bodyMeshSlots: Readonly<Record<string, readonly number[]>>,
 ): MountedArmour {
-  const result: MountedArmour = { meshes: [], hidden: [], problems: [] };
+  const result: MountedArmour = {
+    meshes: [], hidden: [], problems: [], torsoMeshes: [], handMeshes: [],
+  };
   const bones = bonesByName(modelRoot);
   const bodyMesh = firstSkinnedMesh(modelRoot);
   if (!bodyMesh) {
@@ -121,6 +131,8 @@ export function mountArmour(
       mesh.frustumCulled = false;
       parent.add(mesh);
       result.meshes.push(mesh);
+      if (piece.coversBipedSlots.includes(TORSO_BIPED_SLOT)) result.torsoMeshes.push(mesh);
+      if (piece.coversBipedSlots.includes(HANDS_BIPED_SLOT)) result.handMeshes.push(mesh);
     }
     for (const slot of piece.coversBipedSlots) covered.add(slot);
   }

@@ -41,10 +41,14 @@ import {
   advanceBowCycle,
   aimBlend,
   bowPose,
+  bowTravelFor,
   isAiming,
   type BowCycle,
 } from "../game/combat/bowShot";
-import { armourThresholdJoules, launchSpeed, resolveArrowImpact } from "../game/combat/ballistics";
+import { launchSpeed, resolveArrowImpact } from "../game/combat/ballistics";
+import { hitZoneForBone } from "../game/combat/hitZones";
+import { nearestHurtboxBone, stickArrow } from "../game/combat/stuckArrows";
+import { totalArmourRating } from "../game/equipment/armour";
 import { clearArrows, fireArrow } from "../game/combat/arrowStore";
 import { Arrows, type ArrowHit } from "./Arrows";
 import { usePlayerRace } from "../game/actors/raceStore";
@@ -137,6 +141,13 @@ const PLAYER_EYE_OFFSET_Y = 1.68 - CHARACTER_BODY_CENTER_HEIGHT;
  * by them on its first physics step.
  */
 const ARROW_SPAWN_AHEAD_METERS = 0.85;
+/**
+ * How fast an archer can reposition with the bow up, m/s.
+ *
+ * Slower than a free walk. A raised bow is a commitment, and a player who can
+ * circle-strafe at full pace while drawing has no reason to ever lower it.
+ */
+const AIM_MOVE_SPEED = 2.1;
 /** Distance out along the aim axis the first-person camera looks. */
 const AIM_LOOK_DISTANCE_METERS = 40;
 /**
@@ -145,7 +156,7 @@ const AIM_LOOK_DISTANCE_METERS = 40;
  * The head bone is at the base of the skull; a face is forward of it, and the
  * near plane has to clear the neck and shoulders behind it.
  */
-const EYE_AHEAD_OF_HEAD_METERS = 0.16;
+const EYE_AHEAD_OF_HEAD_METERS = 0.22;
 /** Field of view while aiming. Wider than the follow camera, as a bow sight is. */
 const AIM_FIELD_OF_VIEW = 68;
 /** How far above and below level the bow can be aimed, radians. */
@@ -158,23 +169,6 @@ const AIM_PITCH_LIMIT = 1.15;
  * `(+sin yaw, +cos yaw)` behind the player and looks the other way — so the
  * arrow leaves along exactly the axis the crosshair is on.
  */
-/**
- * The armour an arrow actually has to get through.
- *
- * An arrow strikes one place, so summing every worn piece would let a pair of
- * boots protect a throat. The cuirass stands in for the whole target while
- * there is no map from hurtbox bone to biped slot — the torso is most of the
- * area a shot lands in — and anything else worn falls back to the average of
- * what is there.
- */
-function arrowFacingArmourRating(armourIds: readonly string[]) {
-  const worn = wornArmourFor(armourIds);
-  if (worn.length === 0) return 0;
-  const cuirass = worn.find((piece) => piece.slot === "chest");
-  if (cuirass) return cuirass.armourRating;
-  return worn.reduce((total, piece) => total + piece.armourRating, 0) / worn.length;
-}
-
 function aimDirectionInto(target: THREE.Vector3, yaw: number, pitch: number) {
   const horizontal = Math.cos(pitch);
   return target.set(
@@ -685,6 +679,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const aimPitch = useRef(0);
   const aimBlendAmount = useRef(0);
   const playerHeadBone = useRef<THREE.Object3D | null>(null);
+  /** Where the shot is going, shared with anything that has to point along it. */
+  const playerAimDirection = useRef(new THREE.Vector3(0, 0, -1));
   const cameraPosition = useRef(new THREE.Vector3(0, 3.4, 10));
   const cameraLook = useRef(new THREE.Vector3());
   const tmp = useRef({
@@ -710,6 +706,17 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   // Rendered state, not frame state: the actor is a React component and the
   // head has to be collapsed through a prop rather than from the frame loop.
   const aimingSnapshot = useGameStore((state) => state.aiming);
+  const bowPhaseSnapshot = useGameStore((state) => state.bowPhase);
+  /**
+   * The shaft on the string. Present whenever the bow is up and an arrow is
+   * nocked, and gone the instant it is loosed — which is the moment the real
+   * one appears in the world.
+   */
+  const playerNockedArrow = useMemo(() => {
+    if (!aimingSnapshot || !playerQuiver) return null;
+    const nocked = bowPhaseSnapshot === "ready" || bowPhaseSnapshot === "drawing";
+    return { asset: playerQuiver.arrow.asset, visible: nocked, aimDirection: playerAimDirection };
+  }, [aimingSnapshot, bowPhaseSnapshot, playerQuiver]);
   const resetToken = useGameStore((state) => state.resetToken);
   const patch = useGameStore((state) => state.patch);
   const hudTimer = useRef(0);
@@ -871,6 +878,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       guard: f.state === "guard" && !execution ? activeGuardProfile(f.archetype.loadout) : null,
       iframe: f.state === "dodge" && isRollInvulnerable(f.actionTime),
       execution,
+      armourRating: totalArmourRating(wornArmourFor(f.archetype.armour)),
     });
     if (result.kind === "iframe") return false;
     const reaction = hitReactionForAttack(attack);
@@ -950,14 +958,24 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     const victim = enemies.find((candidate) => candidate.hurtboxName === hit.target);
     if (!victim || victim.fighter.health <= 0) return;
     const f = victim.fighter;
+
+    // Which part of the body it found. The same answer serves the damage, the
+    // reaction, and where the shaft is left standing.
+    const struck = nearestHurtboxBone(victim.hurtbox.current, hit.point);
+    const zone = hitZoneForBone(struck?.bone.name ?? null);
     const impact = resolveArrowImpact(hit.arrow.physics, hit.speed, {
-      armourThresholdJoules: armourThresholdJoules(arrowFacingArmourRating(f.archetype.armour)),
+      armourRating: totalArmourRating(wornArmourFor(f.archetype.armour)),
       obliquityRad: hit.obliquityRad,
     });
-    if (impact.damage <= 0) return;
+    const damage = impact.damage * zone.damageMultiplier;
+    if (damage <= 0) return;
 
-    f.health = Math.max(0, f.health - impact.damage);
-    triggerShake("enemyHit", { x: victim.position.x, z: victim.position.z });
+    if (struck && hit.object) stickArrow(struck.bone, hit.object, hit.point, hit.quaternion);
+    f.health = Math.max(0, f.health - damage);
+    triggerShake(zone.heavyReaction ? "enemyHeavyHit" : "enemyHit", {
+      x: victim.position.x,
+      z: victim.position.z,
+    });
     if (f.health <= 0) {
       clearLockIfTarget(victim);
       setEnemyMode(victim, "dead", "DEATH");
@@ -966,12 +984,14 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       return;
     }
     combatAudio.play("hit");
-    if (impact.penetrated) {
+    if (zone.heavyReaction) {
+      f.staggerDuration = f.archetype.stateDurations.staggerDefault;
+      setEnemyMode(victim, "stagger", "HIT_HEAVY");
+      announce("HEADSHOT", 0.8);
+    } else if (impact.penetrated) {
       // A shaft through the mail staggers; one turned by it does not.
       f.staggerDuration = f.archetype.stateDurations.staggerLight;
       setEnemyMode(victim, "stagger", "HIT");
-    } else {
-      announce("THE ARROW TURNED", 0.7);
     }
   }, [announce, clearLockIfTarget, enemies, setEnemyMode, triggerShake]);
 
@@ -997,6 +1017,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       iframe: playerInvulnerable,
       execution: null,
       guardBreakDamage: 18,
+      armourRating: totalArmourRating(playerArmour),
     });
     if (result.kind === "iframe") return;
 
@@ -1463,10 +1484,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         aimPitch.current = 0;
         startPlayerAction("aim", bowAnimations.idle, 0, undefined, null, false);
       }
+      // Kept current every frame the bow is up: the nocked shaft points along
+      // it, and the shot leaves along it.
+      if (isAiming(bowStep.cycle)) {
+        aimDirectionInto(playerAimDirection.current, cameraYaw.current, aimPitch.current);
+        tmp.current.aimDirection.copy(playerAimDirection.current);
+      }
       if (bowStep.shot && playerQuiver) {
         const arrow = playerQuiver.arrow;
         const speed = launchSpeed(ranged, arrow.physics, bowStep.shot.drawFraction);
-        aimDirectionInto(tmp.current.aimDirection, cameraYaw.current, aimPitch.current);
         tmp.current.arrowOrigin
           .set(playerPos.x, playerPos.y + PLAYER_EYE_OFFSET_Y, playerPos.z)
           .addScaledVector(tmp.current.aimDirection, ARROW_SPAWN_AHEAD_METERS);
@@ -1484,12 +1510,18 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         combatAudio.play("swing");
       }
       if (bowStep.exited) {
+        aimPitch.current = 0;
         finishPlayerAction();
       } else if (isAiming(bowStep.cycle)) {
-        const pose = bowPose(bowStep.cycle, bowAnimations);
+        const pose = bowPose(bowStep.cycle, bowAnimations, bowTravelFor(intent.move, moveMagnitude));
         if (pose.animation !== playerAnimationCommand.current.state) {
           startPlayerAction("aim", pose.animation);
         }
+        // A bow-carry stride is timed by the ground it covers, like any other.
+        playerAnimationSpeed.current = locomotionSpeedMultiplier(
+          pose.animation,
+          playerMoveSpeed.current,
+        );
         // The draw's clip time *is* its draw fraction: the pose is the state.
         if (pose.clipTime !== null) playerActionTime.current = pose.clipTime;
       }
@@ -1498,6 +1530,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       // The bow was unequipped, swapped or dropped mid-aim.
       bowCycle.current = IDLE_BOW_CYCLE;
       aimBlendAmount.current = 0;
+      aimPitch.current = 0;
       if (playerAction.current === "aim") finishPlayerAction();
     }
 
@@ -1859,9 +1892,12 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     // the guard clips are authored standing still, so any residual travel
     // would drag a stationary pose across the floor.
     const guarding = playerAction.current === "guard";
-    const movementAllowed = playerAction.current === "idle";
+    const aiming = playerAction.current === "aim";
+    const movementAllowed = playerAction.current === "idle" || aiming;
     movementAllowedRef.current = movementAllowed;
-    const lockOnMoveScale = lockedOn.current && moveMagnitude > 0.08 ? PLAYER_LOCK_ON_WALK_SPEED / PLAYER_WALK_SPEED : 1;
+    const lockOnMoveScale = aiming
+      ? AIM_MOVE_SPEED / PLAYER_WALK_SPEED
+      : lockedOn.current && moveMagnitude > 0.08 ? PLAYER_LOCK_ON_WALK_SPEED / PLAYER_WALK_SPEED : 1;
     // The controller retains horizontal authority through touchdown. Moving
     // landings use a short directional compression and crossfade quickly into
     // locomotion, so there is no planted stationary pose to skate across the
@@ -1869,7 +1905,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     handle.setMovement(movementAllowed
       ? {
         joystick: { x: intent.move.x * lockOnMoveScale, y: intent.move.y * lockOnMoveScale },
-        run: sprinting,
+        run: sprinting && !aiming,
         jump: intent.jumpHeld && playerStamina.current >= COMBAT_TUNING.jumpCost,
       }
       : { joystick: { x: 0, y: 0 }, run: false, jump: false });
@@ -2420,15 +2456,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         playerPos.y + 1.15 + Math.sin(cameraPitch.current) * camDistance,
         playerPos.z + Math.cos(cameraYaw.current) * horizontal,
       );
-      // The eye rides the skeleton when there is one to ride: the head is
-      // already posed by the draw, so the view leans in with it.
-      const head = playerHeadBone.current;
-      if (head) {
-        head.getWorldPosition(tmp.current.flat);
-        tmp.current.flat.addScaledVector(tmp.current.aimDirection, EYE_AHEAD_OF_HEAD_METERS);
-      } else {
-        tmp.current.flat.set(playerPos.x, playerPos.y + PLAYER_EYE_OFFSET_Y, playerPos.z);
-      }
+      // A fixed eye, not the head bone.
+      //
+      // Riding the skeleton sounds right and is not: the draw pose moves the
+      // head, the upper body leans to follow the aim, and a camera chasing both
+      // ends up inside the bow it is supposed to be looking past. Games that
+      // put a camera in a character's head author the arms *to* that camera.
+      // With a third-person body the stable eye is the one that reads.
+      tmp.current.flat.set(playerPos.x, playerPos.y + PLAYER_EYE_OFFSET_Y, playerPos.z)
+        .addScaledVector(tmp.current.aimDirection, EYE_AHEAD_OF_HEAD_METERS);
       tmp.current.desiredCamera.lerp(tmp.current.flat, blend);
       tmp.current.desiredLook
         .copy(tmp.current.flat)
@@ -2494,6 +2530,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         message: message.current,
         gamepad: input.gamepadName,
         aiming: isAiming(bowCycle.current),
+        bowPhase: bowCycle.current.phase,
         drawFraction: bowCycle.current.drawFraction,
         arrowsLeft: playerQuiver?.count ?? 0,
       });
@@ -2603,6 +2640,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           animationTimeRef={playerActionTime}
           weaponProfile={playerWeapon.visual}
           armour={playerArmour}
+          nockedArrow={playerNockedArrow}
           firstPerson={aimingSnapshot}
           raceId={playerRace}
           speedMultiplierRef={playerAnimationSpeed}
@@ -2612,6 +2650,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           weaponRef={playerWeaponObject}
           hurtboxRef={playerHurtbox}
           headBoneRef={playerHeadBone}
+          aimPitchRef={aimPitch}
           visualProbe={visualScenario ? playerVisualProbe.current : undefined}
           visualSupportY={0}
         />

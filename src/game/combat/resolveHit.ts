@@ -1,4 +1,5 @@
 import type { AttackDefinition, GuardProfile } from "../equipment/types";
+import { damageAfterArmour } from "./armourMitigation";
 import { BLOCK_HIT_STOP, resolveGuardImpact } from "./blockReaction";
 
 export type HitContext = {
@@ -14,6 +15,18 @@ export type HitContext = {
   execution: "riposte" | "backstab" | null;
   /** Health lost when a guard is broken through. Enemy guard-break deals none. */
   guardBreakDamage?: number;
+  /**
+   * The defender's total worn armour rating. Reduces damage that actually
+   * lands; a blocked hit is already resolved by the guard, and armour does not
+   * get a second say over the same blow.
+   */
+  armourRating?: number;
+  /**
+   * Multiplier for where the blow landed. 1 is an ordinary body hit. Passed in
+   * rather than derived, so the same rule serves an arrow that knows which bone
+   * it struck and a sword swing that does not.
+   */
+  hitZoneMultiplier?: number;
 };
 
 export type HitResult =
@@ -61,7 +74,11 @@ export function resolveHit(
     };
   }
 
-  const health = Math.max(0, defenderHealth - ctx.attack.damage);
+  const landed = damageAfterArmour(
+    ctx.attack.damage * (ctx.hitZoneMultiplier ?? 1),
+    ctx.armourRating ?? 0,
+  );
+  const health = Math.max(0, defenderHealth - landed);
   const hitStop = ctx.execution ? ctx.attack.hitStop ?? 0.13 : ctx.attack.hitStop ?? 0.055;
   if (ctx.execution) {
     return { kind: "execution", health, killed: health <= 0, hitStop };

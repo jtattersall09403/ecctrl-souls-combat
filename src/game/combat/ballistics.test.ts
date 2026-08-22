@@ -138,7 +138,7 @@ describe("impact", () => {
     const near = shot.samples.find((sample) => sample.x > 10);
     const far = shot.samples.find((sample) => sample.x > 90);
     expect(near && far).toBeTruthy();
-    const unarmoured = { armourThresholdJoules: 0 };
+    const unarmoured = { armourRating: 0 };
     const nearHit = resolveArrowImpact(warShaft, near!.speed, unarmoured);
     const farHit = resolveArrowImpact(warShaft, far!.speed, unarmoured);
     expect(farHit.damage).toBeLessThan(nearHit.damage);
@@ -146,15 +146,15 @@ describe("impact", () => {
   });
 
   it("is heavy but not instantly lethal on an unarmoured target", () => {
-    const hit = resolveArrowImpact(warShaft, speed, { armourThresholdJoules: 0 });
+    const hit = resolveArrowImpact(warShaft, speed, { armourRating: 0 });
     expect(hit.damage).toBeGreaterThan(45);
     expect(hit.damage).toBeLessThan(90);
   });
 
   it("sheds energy on a glancing hit", () => {
-    const square = resolveArrowImpact(warShaft, speed, { armourThresholdJoules: 0 });
+    const square = resolveArrowImpact(warShaft, speed, { armourRating: 0 });
     const glancing = resolveArrowImpact(warShaft, speed, {
-      armourThresholdJoules: 0,
+      armourRating: 0,
       obliquityRad: 1.2,
     });
     expect(glancing.damage).toBeLessThan(square.damage * 0.45);
@@ -162,30 +162,33 @@ describe("impact", () => {
 
   it("lets a bodkin through armour that stops a broadhead", () => {
     const broadhead = defineArrow("iron-hunting-arrow", "hunting", "iron", "a", "b").physics;
-    const plate = { armourThresholdJoules: 90 };
+    const plate = { armourRating: 34 };
     expect(resolveArrowImpact(warShaft, speed, plate).penetrated).toBe(true);
     expect(resolveArrowImpact(broadhead, speed, plate).penetrated).toBe(false);
   });
 
   it("reverses that ranking with no armour in the way", () => {
     const broadhead = defineArrow("iron-hunting-arrow", "hunting", "iron", "a", "b").physics;
-    const bare = { armourThresholdJoules: 0 };
+    const bare = { armourRating: 0 };
     const broadheadSpeed = launchSpeed(WARBOW, broadhead, 1);
     expect(resolveArrowImpact(broadhead, broadheadSpeed, bare).damage)
       .toBeGreaterThan(resolveArrowImpact(warShaft, speed, bare).damage);
   });
 
-  it("still bruises through armour it cannot defeat", () => {
-    const stopped = resolveArrowImpact(warShaft, speed, { armourThresholdJoules: 400 });
+  it("still hurts through armour it cannot defeat, on the same curve a sword meets", () => {
+    const stopped = resolveArrowImpact(warShaft, speed, { armourRating: 400 });
     expect(stopped.penetrated).toBe(false);
     expect(stopped.damage).toBeGreaterThan(0);
-    expect(stopped.damage).toBeLessThan(12);
+    expect(stopped.damage).toBeLessThan(20);
+    // Armour reduces an arrow; it never makes one irrelevant.
+    expect(resolveArrowImpact(warShaft, speed, { armourRating: 50 }).damage)
+      .toBeGreaterThan(resolveArrowImpact(warShaft, speed, { armourRating: 400 }).damage);
   });
 
   it("makes a harder head defeat armour a soft one does not", () => {
     const soft = { ...warShaft, headHardness: 0.7 };
     const hard = { ...warShaft, headHardness: 1.3 };
-    const mail = { armourThresholdJoules: 150 };
+    const mail = { armourRating: 45 };
     expect(resolveArrowImpact(soft, speed, mail).penetrated).toBe(false);
     expect(resolveArrowImpact(hard, speed, mail).penetrated).toBe(true);
   });
@@ -196,8 +199,8 @@ describe("partial draws", () => {
     const full = launchSpeed(WARBOW, warShaft, 1);
     const half = launchSpeed(WARBOW, warShaft, 0.5);
     expect(half).toBeCloseTo(full * 0.5, 5);
-    const fullHit = resolveArrowImpact(warShaft, full, { armourThresholdJoules: 0 });
-    const halfHit = resolveArrowImpact(warShaft, half, { armourThresholdJoules: 0 });
+    const fullHit = resolveArrowImpact(warShaft, full, { armourRating: 0 });
+    const halfHit = resolveArrowImpact(warShaft, half, { armourRating: 0 });
     expect(halfHit.damage).toBeCloseTo(fullHit.damage * 0.25, 4);
   });
 });

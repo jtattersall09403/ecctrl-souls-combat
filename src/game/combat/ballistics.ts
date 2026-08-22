@@ -14,6 +14,8 @@
  * Calibration and sources: `docs/research/archery-ballistics.md`.
  */
 
+import { damageAfterArmour } from "./armourMitigation";
+
 /** m/s². */
 export const GRAVITY = 9.81;
 /** kg/m³, dry air at sea level and 15 °C. */
@@ -316,22 +318,29 @@ export function optimalLaunchAngle(speed: number, arrow: ArrowPhysics) {
 /**
  * What a target is wearing, from the point's perspective.
  *
- * Deliberately one number rather than a link to the armour system: the armour
- * an actor wears is resolved to this before it gets here, so a shot fired at a
- * creature, a door or a training dummy is the same call.
+ * Deliberately one number rather than a link to the armour system: whatever an
+ * actor is wearing is resolved to a total rating before it gets here, so a shot
+ * at a creature, a door or a training dummy is the same call — and so an arrow
+ * meets exactly the armour a sword does.
  */
 export type ImpactTarget = {
-  /** Joules the armour absorbs outright before anything reaches flesh. */
-  armourThresholdJoules: number;
-  /** Angle between the arrow's path and the surface normal, radians. */
+  /** The target's total worn armour rating. */
+  armourRating: number;
+  /** Angle between the arrow's path and the target, radians. Zero is square. */
   obliquityRad?: number;
 };
 
 export type ImpactResult = {
-  /** Energy arriving, before armour. */
+  /** Energy arriving, before anything is taken off it. */
   impactEnergyJoules: number;
-  /** Energy left after obliquity and armour. */
+  /** Energy left after the angle it arrived at. */
   effectiveEnergyJoules: number;
+  /**
+   * Whether the point actually got through, which is a different question from
+   * how much it hurt. Drives the reaction — a shaft through the mail staggers,
+   * one turned by it does not — and never the damage, so nothing is counted
+   * against the armour twice.
+   */
   penetrated: boolean;
   damage: number;
 };
@@ -341,34 +350,29 @@ export type ImpactResult = {
  *
  * The one arbitrary constant in the file, and it is a *unit conversion*, not a
  * balance knob: it maps physics onto the 100-point health scale the melee
- * sandbox was tuned in. A full-draw warbow arrow arriving square on an
- * unarmoured target lands around 68 — a little more than two sword strokes,
- * which is about right for being shot.
+ * sandbox was tuned in. A full-draw warbow shaft arriving square on an
+ * unarmoured target lands around 58 — a little over two sword strokes, which is
+ * about right for being shot.
  */
 export const DAMAGE_PER_JOULE = 0.5;
 
 /**
- * Joules of armour protection per point of the armour system's rating.
+ * Joules a point of armour rating is worth when deciding *penetration*.
  *
- * The second and last unit conversion in this file. A steel cuirass rates 30,
- * so it stops 90 J outright — enough that a hunting bow's broadhead is wasted
- * on it and a full-draw warbow bodkin still goes through. Like
- * `DAMAGE_PER_JOULE`, it maps between two scales rather than balancing either.
+ * Only the penetration question uses this. Damage goes through the same
+ * mitigation curve a sword meets, which is what stops an arrow being uniquely
+ * helpless against a target in plate.
  */
 export const JOULES_PER_ARMOUR_POINT = 3;
-
-/** Turn a worn armour rating into something the impact maths can use. */
-export function armourThresholdJoules(armourRating: number) {
-  return Math.max(0, armourRating) * JOULES_PER_ARMOUR_POINT;
-}
 
 /**
  * Resolve an arrow arriving somewhere.
  *
- * Obliquity first (a glancing hit skates), then the head against the armour,
- * then what is left becomes damage. An arrow that fails to defeat the armour
- * still delivers a fraction of its energy as blunt trauma rather than nothing,
- * because a 130 J impact is not harmless just because it did not open a hole.
+ * Obliquity first — a glancing hit skates and sheds `cos θ` of its energy —
+ * then energy becomes damage, and the armour takes its share on the same curve
+ * every other kind of damage meets. The arrowhead's business is *how well the
+ * armour works*, not whether the arrow counts at all: a bodkin makes plate
+ * behave like far less of it, a broadhead like far more.
  */
 export function resolveArrowImpact(
   arrow: ArrowPhysics,
@@ -378,25 +382,26 @@ export function resolveArrowImpact(
   const head = ARROWHEADS[arrow.head];
   const impactEnergyJoules = kineticEnergyJoules(arrow.massKg, impactSpeed);
   const obliquity = clamp(target.obliquityRad ?? 0, 0, Math.PI / 2);
-  const onTarget = impactEnergyJoules * Math.cos(obliquity);
+  const effectiveEnergyJoules = impactEnergyJoules * Math.cos(obliquity);
 
-  const armour = Math.max(0, target.armourThresholdJoules);
-  const piercing = head.armourPiercing * Math.max(0, arrow.headHardness);
-  const versusArmour = onTarget * piercing;
-  const penetrated = versusArmour > armour;
-  const effectiveEnergyJoules = penetrated
-    ? onTarget - armour / Math.max(piercing, 1e-6)
-    : onTarget * BLUNT_TRAUMA_SHARE;
-
-  const damage = Math.max(
-    0,
-    effectiveEnergyJoules * DAMAGE_PER_JOULE * (penetrated ? head.woundSeverity : 1),
+  const piercing = Math.max(1e-6, head.armourPiercing * Math.max(0, arrow.headHardness));
+  const armourRating = Math.max(0, target.armourRating);
+  // A point that shrugs off armour meets less of it. Same curve, different
+  // amount, so a head choice is a real decision rather than a damage bonus.
+  const effectiveRating = armourRating / piercing;
+  const damage = damageAfterArmour(
+    effectiveEnergyJoules * DAMAGE_PER_JOULE * head.woundSeverity,
+    effectiveRating,
   );
-  return { impactEnergyJoules, effectiveEnergyJoules, penetrated, damage };
+
+  return {
+    impactEnergyJoules,
+    effectiveEnergyJoules,
+    penetrated: effectiveEnergyJoules * piercing > armourRating * JOULES_PER_ARMOUR_POINT,
+    damage,
+  };
 }
 
-/** Share of a stopped arrow's energy that still hurts through armour. */
-const BLUNT_TRAUMA_SHARE = 0.12;
 
 /**
  * Player-stat hooks.

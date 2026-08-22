@@ -45,6 +45,7 @@
   ],
   "ranged": [
     "bow-shot",
-    "bow-partial-draw"
+    "bow-partial-draw",
+    "bow-aim-tracking"
   ]
 }

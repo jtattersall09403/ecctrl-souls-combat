@@ -94,3 +94,8 @@ export function armourById(id: string): ArmourDefinition {
   if (!piece) throw new RangeError(`unknown armour: ${id}`);
   return piece;
 }
+
+/** Total protection from a set of worn pieces. */
+export function totalArmourRating(pieces: readonly ArmourDefinition[]) {
+  return pieces.reduce((total, piece) => total + piece.armourRating, 0);
+}

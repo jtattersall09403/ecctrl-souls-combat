@@ -1957,5 +1957,41 @@
     },
     "motionChecks": [],
     "transitionMotionChecks": []
+  },
+  "bow-aim-tracking": {
+    "playerActions": [
+      "idle",
+      "aim"
+    ],
+    "playerAnimations": [
+      "BOW_IDLE",
+      "BOW_DRAW",
+      "BOW_DRAWN",
+      "BOW_RELEASE"
+    ],
+    "enemyActions": [],
+    "enemyAnimations": [],
+    "requiredActionRuns": {
+      "player": [
+        "idle",
+        "aim"
+      ]
+    },
+    "requiredAnimationRuns": {
+      "player": [
+        "BOW_IDLE",
+        "BOW_DRAW",
+        "BOW_DRAWN",
+        "BOW_RELEASE",
+        "BOW_IDLE"
+      ]
+    },
+    "evidenceAnimations": {
+      "player": [
+        "BOW_DRAWN"
+      ]
+    },
+    "motionChecks": [],
+    "transitionMotionChecks": []
   }
 }

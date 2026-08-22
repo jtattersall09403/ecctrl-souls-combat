@@ -35,6 +35,16 @@ export type ArrowHit = {
   /** Angle between the arrow's path and the surface, radians. */
   obliquityRad: number;
   point: THREE.Vector3;
+  /** World orientation at contact, so a shaft is left standing along its path. */
+  quaternion: THREE.Quaternion;
+  /**
+   * The arrow's own mesh, handed over and already detached.
+   *
+   * The projectile stops existing the moment it lands; whoever it landed in
+   * takes ownership of the shaft. Passing the object rather than an id is what
+   * lets it be parented to a bone with no second load and no second cache.
+   */
+  object: THREE.Object3D | null;
 };
 
 export function Arrows({ onHit }: { onHit: (hit: ArrowHit) => void }) {
@@ -126,12 +136,18 @@ function Arrow({ live, onHit }: { live: LiveArrow; onHit: (hit: ArrowHit) => voi
     if (target === live.shooter) return;
     spent.current = true;
     const velocity = rigid.linvel();
+    const rotation = rigid.rotation();
+    // Hand the mesh over *before* this component unmounts, or it goes with it.
+    const shaft = model;
+    shaft.removeFromParent();
     onHit({
       target,
       arrow: live.arrow,
       speed: Math.hypot(velocity.x, velocity.y, velocity.z),
       obliquityRad: impactObliquity(velocity, contact, centre),
       point: contact.clone(),
+      quaternion: new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w),
+      object: shaft,
     });
     retire(live.id);
   };
@@ -161,14 +177,11 @@ function Arrow({ live, onHit }: { live: LiveArrow; onHit: (hit: ArrowHit) => voi
           new THREE.Vector3(centre?.x ?? 0, centre?.y ?? 0, centre?.z ?? 0),
         );
       }}
-      onCollisionEnter={({ other }) => {
-        const centre = other.rigidBody?.translation();
-        strike(
-          other.rigidBodyObject?.name ?? null,
-          contactPoint(),
-          new THREE.Vector3(centre?.x ?? 0, centre?.y ?? 0, centre?.z ?? 0),
-        );
-      }}
+      /*
+        No handler for world contact on purpose: an arrow that misses should lie
+        where it falls until its lifetime runs out, not vanish the instant it
+        touches the floor. Only a body takes a shaft out of the air.
+      */
     >
       {/*
         Two colliders, because an arrow is a light shaft with a heavy point on
@@ -189,7 +202,7 @@ function Arrow({ live, onHit }: { live: LiveArrow; onHit: (hit: ArrowHit) => voi
       />
       {/* The pipeline builds every item along +Z, so the shaft already lies
           down the body's forward axis. */}
-      <primitive object={model} />
+      <primitive object={model} dispose={null} />
     </RigidBody>
   );
 }

@@ -35,6 +35,7 @@ export const VISUAL_SCENARIO_IDS = [
   "moving-landing",
   "bow-shot",
   "bow-partial-draw",
+  "bow-aim-tracking",
 ] as const;
 
 export type VisualScenarioId = typeof VISUAL_SCENARIO_IDS[number];
@@ -57,6 +58,16 @@ type InputCue = {
   to: number;
   actions?: readonly InputAction[];
   move?: readonly [number, number];
+  /**
+   * Camera stick, in the same units the touch/mouse path accumulates.
+   *
+   * Applied per second rather than per frame, so a cue means the same thing at
+   * any capture rate. Needed to exercise anything that answers the *look*
+   * input rather than the movement one — an aimed bow leaning to where the
+   * player is looking, for instance, which nothing else in the driver can
+   * reach.
+   */
+  camera?: readonly [number, number];
 };
 
 type EnemyCue = VisualScenarioEnemyCue & {
@@ -268,7 +279,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     label: "Damaged player uses Estus → heal animation and health recovery",
     warmup: 0.5,
     duration: 2.8,
-    player: { position: [0, Y, 0], yaw: Math.PI, health: 35 },
+    player: { position: [0, Y, 0], yaw: Math.PI, health: 24 },
     enemy: SOLO_ENEMY,
     cues: [{ from: 0.2, to: 0.29, actions: ["heal"] }],
   },
@@ -296,7 +307,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     // the first hit establishes overlap/facing and the second is lethal. Leave
     // the 1.9s fall plus at least one full second of its clamped prone pose.
     duration: 7,
-    player: { ...REVIEW_PLAYER, health: 48 },
+    player: { ...REVIEW_PLAYER, health: 34 },
     enemy: REVIEW_ENEMY,
     cues: [],
     enemyCues: [
@@ -344,7 +355,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
       ...FACING_ENEMY,
       state: "parried",
       animation: "GUARD_BREAK",
-      health: 40,
+      health: 26,
       holdInitialState: true,
     },
     cues: [{ from: 0.55, to: 0.64, actions: ["light"] }],
@@ -355,7 +366,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     warmup: 0.5,
     duration: 6.5,
     player: { position: [0, Y, -1.15], yaw: 0 },
-    enemy: { ...FACING_ENEMY, health: 40 },
+    enemy: { ...FACING_ENEMY, health: 26 },
     cues: [{ from: 0.55, to: 0.64, actions: ["light"] }],
   },
   "guard-break": {
@@ -375,7 +386,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     // plus at least one second of the clamped prone outcome.
     duration: 8.4,
     player: REVIEW_PLAYER,
-    enemy: { ...REVIEW_ENEMY, health: 90 },
+    enemy: { ...REVIEW_ENEMY, health: 62 },
     cues: [
       { from: 0.05, to: 0.14, actions: ["lockOn"] },
       { from: 0.25, to: 0.34, actions: ["light"] },
@@ -490,7 +501,7 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     warmup: 0.5,
     duration: 6.8,
     player: FOCUSED_REVIEW_PLAYER,
-    enemy: { ...FOCUSED_REVIEW_ENEMY, health: 60 },
+    enemy: { ...FOCUSED_REVIEW_ENEMY, health: 40 },
     cues: [{ from: 0.05, to: 0.14, actions: ["lockOn"] }],
     enemyCues: [
       { at: 0.2, intent: "heal" },
@@ -588,6 +599,26 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
       { from: 0.6, to: 5.2, actions: ["light"] },
     ],
   },
+  "bow-aim-tracking": {
+    id: "bow-aim-tracking",
+    label: "Bow → draw, then look up and down while holding at full draw",
+    warmup: 0.5,
+    duration: 8.6,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      { from: 0.6, to: 7.4, actions: ["light"] },
+      // Look up, then back down, while the string is held.
+      { from: 4.6, to: 5.8, camera: [0, -22] },
+      { from: 5.9, to: 7.1, camera: [0, 26] },
+    ],
+  },
   "bow-partial-draw": {
     id: "bow-partial-draw",
     label: "Bow → half draw, weak shot, then lower the bow",
@@ -649,13 +680,17 @@ export class VisualScenarioDriver {
     const active = new Set<InputAction>();
     let moveX = 0;
     let moveY = 0;
+    let cameraX = 0;
+    let cameraY = 0;
     for (const cue of this.scenario.cues) {
       if (!this.ready || this.elapsed < cue.from || this.elapsed >= cue.to) continue;
       for (const action of cue.actions ?? []) active.add(action);
       if (cue.move) [moveX, moveY] = cue.move;
+      if (cue.camera) [cameraX, cameraY] = cue.camera;
     }
     for (const action of SCRIPTABLE_ACTIONS) input.setVirtual(action, active.has(action));
     input.setTouchMovement({ x: moveX, y: moveY });
+    if (cameraX || cameraY) input.addTouchCamera({ x: cameraX * step, y: cameraY * step });
   }
 
   /** Returns a due opponent choice once; combat code still starts/resolves it. */

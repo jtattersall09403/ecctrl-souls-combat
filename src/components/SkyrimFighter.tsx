@@ -39,6 +39,7 @@ import { DEFAULT_RACE, RIG_REVISION, raceById, type RaceDefinition, type RaceId 
 import type { ArmourDefinition } from "../game/equipment/armour";
 import type { MountedArmour } from "../game/actors/armourMounting";
 import { ArmourAttachments } from "./ArmourAttachments";
+import { NockedArrow } from "./NockedArrow";
 import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
 /**
@@ -59,6 +60,26 @@ const NO_ARMOUR: readonly ArmourDefinition[] = [];
  * vertex it skins into NaN and takes the whole mesh's bounding box with it.
  */
 const FIRST_PERSON_HEAD_SCALE = 0.001;
+
+/**
+ * How the aim angle is spread up the spine.
+ *
+ * The two spine shares sum to *one* on purpose, and the head's is extra. Bones
+ * compose down the chain, and the arms hang off Spine2 — so what the bow
+ * receives is Spine1 + Spine2 and nothing else. Counting the head into the
+ * total leaves the hands short of the aim line by exactly the head's share,
+ * which reads as the bow lagging behind the crosshair.
+ */
+type AimBone = { share: number; object: THREE.Object3D; authored: THREE.Quaternion | null };
+
+/** Time constant for easing the lean toward where the player is looking. */
+const AIM_PITCH_SMOOTHING_SECONDS = 0.09;
+
+const AIM_PITCH_BONES: readonly { bone: string; share: number }[] = [
+  { bone: "NPC Spine1 [Spn1]", share: 0.35 },
+  { bone: "NPC Spine2 [Spn2]", share: 0.65 },
+  { bone: "NPC Head [Head]", share: 0.15 },
+];
 
 function raceUrl(race: RaceDefinition) {
   return `${import.meta.env.BASE_URL}${race.asset}?v=${race.revision}`;
@@ -168,10 +189,12 @@ function PosedActor({
   targetAnchorRef,
   hurtboxRef,
   headBoneRef,
+  aimPitchRef,
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
   armour = NO_ARMOUR,
+  nockedArrow = null,
   firstPerson = false,
   raceId = DEFAULT_RACE,
   modelOffsetY = CHARACTER_MODEL_OFFSET,
@@ -196,12 +219,27 @@ function PosedActor({
    * camera pinned at a constant height would not.
    */
   headBoneRef?: MutableRefObject<THREE.Object3D | null>;
+  /**
+   * Radians the upper body should lean to look where the actor is aiming.
+   * Positive is upward. Zero, or absent, leaves the authored pose alone.
+   */
+  aimPitchRef?: MutableRefObject<number>;
   animationTimeRef?: MutableRefObject<number>;
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
   /** Worn armour. Each piece is skinned to the shared rig and hides what it covers. */
   armour?: readonly ArmourDefinition[];
+  /**
+   * Arrow to show on the string, or null for none. Mounted on the drawing hand
+   * so the authored draw carries it from the quiver to the anchor.
+   */
+  nockedArrow?: {
+    asset: string;
+    visible: boolean;
+    /** Unit world direction of the shot, so the shaft lies along it. */
+    aimDirection: MutableRefObject<THREE.Vector3>;
+  } | null;
   /**
    * The camera is inside this actor's head.
    *
@@ -249,6 +287,12 @@ function PosedActor({
     return weapon;
   }, [weaponGltf.scene]);
   const weaponMount = useMemo(() => new THREE.Group(), []);
+  // The hand that is *not* holding the item. With a bow in the left hand, this
+  // is the one that nocks and draws.
+  const drawHandSocket = useMemo(
+    () => model.getObjectByName(RIG_SOCKETS.weapon) ?? model.getObjectByName(RIG_SOCKETS.weaponFallback) ?? null,
+    [model],
+  );
   const healingFlask = useMemo(() => createHealingFlask(), []);
 
   const headBone = useMemo(
@@ -269,6 +313,77 @@ function PosedActor({
       if (headBoneRef.current === headBone) headBoneRef.current = null;
     };
   }, [headBone, headBoneRef]);
+
+  /**
+   * Lean the upper body to where the actor is aiming.
+   *
+   * An authored clip aims dead level, so without this the bow, the arrow and
+   * both arms stay pinned to the horizon however far the player looks up or
+   * down — which in first person reads as the controls not working. Spreading
+   * the angle down the spine is the cheap stand-in for the aim-offset layer a
+   * blended rig would have: no clip has to be re-authored, and the head comes
+   * with it, so the first-person eye leans in too.
+   */
+  const aimBones = useMemo(() => AIM_PITCH_BONES.map(({ bone, share }) => ({
+    share,
+    object: model.getObjectByName(sanitizeBoneName(bone)) ?? null,
+    /** Last frame's clip-authored rotation, restored before the next update. */
+    authored: null as THREE.Quaternion | null,
+  })).filter((entry): entry is AimBone => Boolean(entry.object)),
+  [model]);
+  const aimTmp = useRef({
+    parentWorld: new THREE.Quaternion(),
+    parentInverse: new THREE.Quaternion(),
+    delta: new THREE.Quaternion(),
+    local: new THREE.Quaternion(),
+    actorWorld: new THREE.Quaternion(),
+    right: new THREE.Vector3(),
+  });
+  /**
+   * Put the spine back the way the clip left it.
+   *
+   * Must run *before* the mixer, every frame. The lean is applied by
+   * premultiplying each bone's local rotation, which is only safe if something
+   * rewrites that rotation from the clip in between — and an externally timed
+   * action is *paused*, so on those frames nothing does. Without this the
+   * delta compounds, and the symptom is an actor whose arms accelerate
+   * smoothly away from its body over a couple of seconds.
+   */
+  const releaseAimPitch = useCallback(() => {
+    for (const entry of aimBones) {
+      if (entry.authored) entry.object.quaternion.copy(entry.authored);
+    }
+  }, [aimBones]);
+
+  const applyAimPitch = useCallback((pitch: number) => {
+    if (Math.abs(pitch) < 1e-4 || aimBones.length === 0) return;
+    const tmp = aimTmp.current;
+    for (const entry of aimBones) {
+      const { object, share } = entry;
+      entry.authored = (entry.authored ?? new THREE.Quaternion()).copy(object.quaternion);
+      const parent = object.parent;
+      if (!parent) continue;
+      parent.updateWorldMatrix(true, false);
+      parent.getWorldQuaternion(tmp.parentWorld);
+      tmp.parentInverse.copy(tmp.parentWorld).invert();
+      // Pitch about the *actor's* right axis, in world space, then expressed in
+      // the bone's parent frame. Bones on this rig do not share an axis
+      // convention, so rotating a local axis would twist as often as it tilts.
+      if (!root.current) continue;
+      root.current.getWorldQuaternion(tmp.actorWorld);
+      tmp.right.set(1, 0, 0).applyQuaternion(tmp.actorWorld).setY(0);
+      if (tmp.right.lengthSq() < 1e-6) continue;
+      tmp.right.normalize();
+      // Negated: the actor's right axis points the way it does, and a positive
+      // aim pitch means *up*, which about that axis is a negative rotation.
+      tmp.delta.setFromAxisAngle(tmp.right, -pitch * share);
+      tmp.local.copy(tmp.parentInverse).multiply(tmp.delta).multiply(tmp.parentWorld);
+      object.quaternion.premultiply(tmp.local);
+      object.updateWorldMatrix(false, true);
+    }
+  }, [aimBones]);
+
+  const appliedAimPitch = useRef(0);
 
   const previousAction = useRef<THREE.AnimationAction | null>(null);
   const fadingFromAction = useRef<THREE.AnimationAction | null>(null);
@@ -563,10 +678,19 @@ function PosedActor({
     // Advance blend weights and self-timed clips from their authoritative
     // clock. Externally timed actions are paused, so this updates their fades
     // without moving them away from the combat action clock above.
+    releaseAimPitch();
     mixer.timeScale = 1;
     mixer.update(mixerDelta);
     mixer.timeScale = 0;
     if ((fadingFromAction.current?.getEffectiveWeight() ?? 0) <= 1e-5) fadingFromAction.current = null;
+    // Eased, not applied raw. The lean moves the whole upper body, so a stick
+    // flicked from level to full elevation would teleport both hands most of a
+    // metre in one frame — which is both a visible snap and a real hazard for
+    // anything watching bone travel.
+    appliedAimPitch.current += (
+      (aimPitchRef?.current ?? 0) - appliedAimPitch.current
+    ) * (1 - Math.exp(-mixerDelta / AIM_PITCH_SMOOTHING_SECONDS));
+    applyAimPitch(appliedAimPitch.current);
     if (action && config.playbackEndTime != null && action.time > config.playbackEndTime) {
       // Clamp the currently playing action as soon as it reaches its authored
       // out-point. Waiting until the next state consumes a command allowed the
@@ -875,12 +999,25 @@ function PosedActor({
   return (
     <group ref={root} position={[0, modelOffsetY, 0]} scale={CHARACTER_SCALE} dispose={null}>
       <primitive object={model} />
+      {nockedArrow && (
+        <Suspense fallback={null}>
+          <NockedArrow
+            socket={drawHandSocket}
+            parent={model}
+            asset={nockedArrow.asset}
+            visible={nockedArrow.visible}
+            aimDirection={nockedArrow.aimDirection}
+          />
+        </Suspense>
+      )}
       {armour.length > 0 && (
         <Suspense fallback={null}>
           <ArmourAttachments
             model={model}
             armour={armour}
             bodyMeshSlots={race.meshBipedSlots}
+            hideTorso={firstPerson}
+            hideHands={firstPerson}
             onMountedChange={onArmourChange}
           />
         </Suspense>
