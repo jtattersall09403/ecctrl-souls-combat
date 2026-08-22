@@ -19,8 +19,7 @@ import {
   usesCrossFadeSoleProxy,
 } from "../game/anim/grounding";
 import {
-  CHARACTER_GLB,
-  CHARACTER_ASSET_REVISION,
+  RIG_GLB,
   HURTBOX_SEGMENTS,
   sanitizeBoneName,
   CHARACTER_SCALE,
@@ -36,9 +35,23 @@ import { CHARACTER_BODY_CENTER_HEIGHT, CHARACTER_MODEL_OFFSET } from "../game/ph
 import type { AnimationState, WeaponSocketTransform, WeaponVisualProfile } from "../game/core/types";
 import { VISUAL_PROBE_BONES, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
 import { VISUAL_FRAME_PHASE_PRIORITY } from "../game/validation/visualFrameMarker";
+import { DEFAULT_RACE, RIG_REVISION, raceById, type RaceDefinition, type RaceId } from "../game/actors/races";
 import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
-const GLB_URL = `${import.meta.env.BASE_URL}${CHARACTER_GLB}?v=${CHARACTER_ASSET_REVISION}`;
+/**
+ * The rig carries the skeleton and every semantic clip; a race GLB carries only
+ * that race's skin. They are separate downloads because the animations are
+ * identical for every race and would otherwise be duplicated per body.
+ *
+ * Nothing has to be re-bound to join them: both are built from the same
+ * skeleton, so the clips' bone names resolve against whichever race model is
+ * mounted, and `useAnimations` binds by name.
+ */
+const RIG_URL = `${import.meta.env.BASE_URL}${RIG_GLB}?v=${RIG_REVISION}`;
+
+function raceUrl(race: RaceDefinition) {
+  return `${import.meta.env.BASE_URL}${race.asset}?v=${race.revision}`;
+}
 
 // Progress (0-1) through EQUIP/UNEQUIP at which the sword switches sockets,
 // matching roughly when the drawing/sheathing hand reaches the hip in the
@@ -130,6 +143,7 @@ export function SkyrimFighter({
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
+  raceId = DEFAULT_RACE,
   modelOffsetY = CHARACTER_MODEL_OFFSET,
   validationTint,
   visualProbe,
@@ -148,6 +162,8 @@ export function SkyrimFighter({
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
+  /** Which body to mount on the shared rig. */
+  raceId?: RaceId;
   modelOffsetY?: number;
   /** High-contrast actor identity used only by production-path visual scenarios. */
   validationTint?: THREE.ColorRepresentation;
@@ -156,7 +172,9 @@ export function SkyrimFighter({
   /** Known world-space support plane used by the upward-only penetration guard and validation. */
   visualSupportY?: number;
 }) {
-  const gltf = useGLTF(GLB_URL);
+  const race = raceById(raceId);
+  const rig = useGLTF(RIG_URL);
+  const gltf = useGLTF(raceUrl(race));
   const weaponUrl = `${import.meta.env.BASE_URL}${weaponProfile.asset}`;
   const weaponGltf = useGLTF(weaponUrl);
   const model = useMemo(() => {
@@ -203,7 +221,8 @@ export function SkyrimFighter({
   const itemOffset = useRef(new THREE.Quaternion());
   const weaponTipTmp = useRef(new THREE.Vector3());
 
-  const { actions, mixer } = useAnimations(gltf.animations, root);
+  // Clips come from the rig, the skeleton they drive comes from the race body.
+  const { actions, mixer } = useAnimations(rig.animations, root);
 
   // drei's useAnimations normally advances its mixer from raw render-wall
   // delta. Combat and the deterministic visual scenarios deliberately cap
@@ -775,4 +794,4 @@ export function SkyrimFighter({
   );
 }
 
-useGLTF.preload(GLB_URL);
+useGLTF.preload(RIG_URL);

@@ -28,6 +28,7 @@ import {
   RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
 import { useEquippedLoadout } from "../game/inventory/store";
+import { usePlayerRace } from "../game/actors/raceStore";
 import {
   DEFAULT_ENEMY_ARCHETYPE,
   type EnemyArchetype,
@@ -424,6 +425,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
           weaponProfile={runtime.archetype.loadout.mainHand.visual}
+          raceId={runtime.archetype.race}
           speedMultiplierRef={runtime.animationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped
@@ -454,6 +456,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   // The player's equipped kit. Every moveset, animation and socket the player
   // uses comes from here, so equipping something in the inventory swaps all of
   // them — including what a raised guard is made of.
+  const playerRace = usePlayerRace();
   const playerLoadout = useEquippedLoadout();
   const playerWeapon = playerLoadout.mainHand;
   const playerGuard = useMemo(() => activeGuardProfile(playerLoadout), [playerLoadout]);
@@ -2257,6 +2260,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
           weaponProfile={playerWeapon.visual}
+          raceId={playerRace}
           speedMultiplierRef={playerAnimationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
           equipped={equipped.current}

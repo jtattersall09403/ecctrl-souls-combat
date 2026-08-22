@@ -434,12 +434,11 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
     id: "enemy-approach",
     label: "Enemy approach intent → turn, walk, and accelerate to run",
     warmup: 0.5,
-    // End after two complete, reviewable RUN seams. Continuing farther carries
-    // the enemy behind the arena pillar and eventually crosses the production
-    // run-to-walk hysteresis band, obscuring the behavior under review. The
-    // enemy now closes without re-deciding while it is still far, so it reaches
-    // that band sooner than it used to.
-    duration: 3.0,
+    // Show the whole gait arc: turn, walk, accelerate to a run as the player
+    // retreats through the run threshold, then drop back to a walk when the
+    // enemy closes through the hysteresis band. Ending before that last
+    // transition hid the half of the behaviour most likely to be wrong.
+    duration: 3.6,
     player: {
       position: [0, Y, 3.7],
       yaw: Math.atan2(1.8, -5),

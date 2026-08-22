@@ -19,6 +19,23 @@ async function assertBinaryGltf(path) {
   }
 }
 
+/**
+ * A valid GLB header is not enough. The animation manifest holds time-indexed
+ * support curves and a fitted hurtbox measured from one exact binary, so a
+ * staged/working-tree mismatch has to fail before Vite can produce a build that
+ * is subtly wrong rather than obviously broken.
+ */
+async function assertMatchingGltf(path, expectedSha) {
+  await assertBinaryGltf(path);
+  if (typeof expectedSha !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha)) {
+    throw new Error(`public/${path} has no valid recorded sha256`);
+  }
+  const actual = createHash("sha256").update(await readFile(publicUrl(path))).digest("hex");
+  if (actual !== expectedSha) {
+    throw new Error(`public/${path} does not match its manifest: expected ${expectedSha}, got ${actual}`);
+  }
+}
+
 async function assertReadable(path) {
   try {
     await readFile(publicUrl(path));
@@ -30,7 +47,22 @@ async function assertReadable(path) {
 // The deployment assets are intentionally versioned: GitHub Pages builds from a
 // clean checkout and cannot recreate owned Skyrim-derived binaries. Fail before
 // TypeScript/Vite if a future change accidentally drops one.
-await assertBinaryGltf("character-dunmer-combat.glb");
+//
+// A character is two downloads: one rig carrying the skeleton and every clip,
+// and one body per race. Both halves must be present and must be the exact
+// binaries their manifests describe, or a race renders posed by clips that were
+// measured against a different skeleton.
+const roster = JSON.parse(await readFile(
+  new URL("../src/game/actors/generated/races.json", import.meta.url),
+  "utf8",
+));
+await assertMatchingGltf(roster.rig.asset, roster.rig.sha256);
+const races = Object.entries(roster.races ?? {});
+if (races.length === 0) throw new Error("Race roster declares no races");
+for (const [id, race] of races) {
+  if (typeof race.asset !== "string") throw new Error(`Race ${id} is missing its asset path`);
+  await assertMatchingGltf(race.asset, race.sha256);
+}
 
 // Every item the game can reference must actually be deployed. The arsenal
 // manifest is generated beside the GLBs it describes, so checking it here
@@ -49,24 +81,6 @@ for (const [id, item] of items) {
   await assertReadable(item.icon);
 }
 
-// A valid GLB header is not enough: the manifest contains time-indexed support
-// curves and provenance for one exact character binary. Refuse to deploy a
-// staged/working-tree mismatch before Vite can produce a subtly broken build.
-const characterManifest = JSON.parse(await readFile(
-  new URL("../src/game/anim/character-dunmer-combat.animations.json", import.meta.url),
-  "utf8",
-));
-const expectedCharacterSha = characterManifest.assetSha256;
-if (typeof expectedCharacterSha !== "string" || !/^[a-f0-9]{64}$/.test(expectedCharacterSha)) {
-  throw new Error("Character animation manifest is missing a valid assetSha256");
-}
-const actualCharacterSha = createHash("sha256")
-  .update(await readFile(publicUrl("character-dunmer-combat.glb")))
-  .digest("hex");
-if (actualCharacterSha !== expectedCharacterSha) {
-  throw new Error(
-    `Runtime character GLB/manifest mismatch: expected ${expectedCharacterSha}, got ${actualCharacterSha}`,
-  );
-}
-
-console.log(`tracked runtime character/manifest and ${items.length} arsenal items verified`);
+console.log(
+  `verified rig, ${races.length} race bodies and ${items.length} arsenal items`,
+);

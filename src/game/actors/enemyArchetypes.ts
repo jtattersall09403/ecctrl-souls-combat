@@ -1,5 +1,6 @@
 import type { AnimationState } from "../core/types";
 import type { Loadout } from "../equipment/types";
+import { DEFAULT_RACE, type RaceId } from "./races";
 import { STRAIGHT_SWORD } from "../equipment/arsenal";
 
 /**
@@ -69,6 +70,8 @@ export type EnemyArchetype = {
   maxHealth: number;
   maxStamina: number;
   estus: number;
+  /** Which body this creature wears on the shared rig. */
+  race: RaceId;
   loadout: Loadout;
   locomotion: EnemyLocomotionProfile;
   decision: EnemyDecisionProfile;
@@ -87,6 +90,7 @@ export const HOLLOW_WARDEN: EnemyArchetype = {
   maxHealth: 150,
   maxStamina: 100,
   estus: 1,
+  race: DEFAULT_RACE,
   loadout: { mainHand: STRAIGHT_SWORD, offHand: null },
   locomotion: {
     walkSpeed: 1.75,

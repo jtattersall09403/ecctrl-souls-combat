@@ -1341,7 +1341,8 @@
       "enemy": [
         "SWORD_IDLE",
         "WALK",
-        "RUN"
+        "RUN",
+        "WALK"
       ]
     },
     "evidenceAnimations": {

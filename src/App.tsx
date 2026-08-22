@@ -2,6 +2,7 @@ import { Canvas, advance } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
 import { CombatScene } from "./components/CombatScene";
 import { InventoryScreen } from "./ui/inventory/InventoryScreen";
+import { RacePicker } from "./ui/RacePicker";
 import { enterFullscreen, FullscreenButton } from "./components/FullscreenButton";
 import { Hud } from "./components/Hud";
 import { VisualFrameMarker } from "./components/VisualFrameMarker";
@@ -142,6 +143,7 @@ export function App() {
           <p>AN ECCTRL COMBAT PROTOTYPE</p>
           <h1>ASHEN RING</h1>
           <p className="subtitle">One knight. One blade. One lesson.</p>
+          <RacePicker />
           <button onClick={begin}>ENTER THE ARENA</button>
           <FullscreenButton className="fullscreen-entry" />
           <small>Desktop · touch · GameSir X2s</small>

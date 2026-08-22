@@ -2,16 +2,26 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-describe("tracked runtime animation asset", () => {
-  it("byte-matches the generated manifest support/provenance data", async () => {
-    const manifest = JSON.parse(await readFile(
-      new URL("./character-dunmer-combat.animations.json", import.meta.url),
+/**
+ * A character is two tracked binaries: one rig carrying the skeleton and every
+ * clip, and one body per race. The animation manifest's support curves and
+ * fitted hurtbox were measured against exact bytes, so a working tree where the
+ * manifest and the binaries disagree is a build that is subtly wrong rather
+ * than obviously broken.
+ */
+describe("tracked runtime character assets", () => {
+  it("byte-matches every rig and race body the roster declares", async () => {
+    const roster = JSON.parse(await readFile(
+      new URL("../actors/generated/races.json", import.meta.url),
       "utf8",
-    )) as { assetSha256?: string };
-    const glb = await readFile(new URL("../../../public/character-dunmer-combat.glb", import.meta.url));
-    const actualSha = createHash("sha256").update(glb).digest("hex");
+    )) as { rig: { asset: string; sha256: string }; races: Record<string, { asset: string; sha256: string }> };
 
-    expect(manifest.assetSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(actualSha).toBe(manifest.assetSha256);
+    const tracked = [roster.rig, ...Object.values(roster.races)];
+    expect(tracked.length).toBeGreaterThan(1);
+    for (const entry of tracked) {
+      expect(entry.sha256, entry.asset).toMatch(/^[a-f0-9]{64}$/);
+      const bytes = await readFile(new URL(`../../../public/${entry.asset}`, import.meta.url));
+      expect(createHash("sha256").update(bytes).digest("hex"), entry.asset).toBe(entry.sha256);
+    }
   });
 });

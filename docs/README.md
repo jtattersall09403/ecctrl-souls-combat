@@ -17,8 +17,13 @@ character, animation and movement architecture.
 | Keep (portable core) | Throwaway (sandbox scaffolding) |
 | --- | --- |
 | `src/game/combat/*`, `src/game/anim/*`, `src/game/physics/*` | `Arena.tsx`, intro screen, debug HUD/panel |
-| `SkyrimFighter` actor + animation manifest | enemy spawn layout, arena lighting |
+| `src/game/equipment/*`, `src/game/inventory/*`, `src/game/actors/*` | enemy spawn layout, arena lighting |
+| `SkyrimFighter` actor + animation manifest | the inventory's Morrowind *skin* |
 | `PlayerMovementController` boundary | |
+
+The inventory is a deliberate example of the split: its rules and view model are
+core, its stylesheet is not. See
+[architecture/items-and-inventory.md](architecture/items-and-inventory.md).
 
 ## Map
 
@@ -28,6 +33,8 @@ character, animation and movement architecture.
 | [architecture/character-actor.md](architecture/character-actor.md) | The Skyrim character actor + GLB |
 | [architecture/movement-boundary.md](architecture/movement-boundary.md) | Controller-independent movement boundary |
 | [architecture/animation-contract.md](architecture/animation-contract.md) | Manifest-driven semantic animations |
+| [architecture/characters-and-races.md](architecture/characters-and-races.md) | The rig/race split, skin tint, and beast tails |
+| [architecture/items-and-inventory.md](architecture/items-and-inventory.md) | Items from class x material, and the inventory's three layers |
 | [architecture/movement-speed-tuning.md](architecture/movement-speed-tuning.md) | Where to edit travel speed vs animation playback speed for locomotion/dodges |
 | [assets/rebuilding-the-character.md](assets/rebuilding-the-character.md) | Rebuild the character GLB from Skyrim source |
 | [assets/animation-source-audit.md](assets/animation-source-audit.md) | Selected Skyrim clips, external-source provenance, and audition results |

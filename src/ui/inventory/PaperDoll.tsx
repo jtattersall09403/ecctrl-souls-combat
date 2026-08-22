@@ -5,6 +5,7 @@ import { createAnimationCommand } from "../../game/anim/animationCommand";
 import { CHARACTER_MODEL_OFFSET } from "../../game/physics/characterPhysics";
 import { SkyrimFighter } from "../../components/SkyrimFighter";
 import { useEquippedLoadout } from "../../game/inventory/store";
+import { usePlayerRace } from "../../game/actors/raceStore";
 
 /**
  * The character panel: the real production actor, holding what is actually
@@ -16,6 +17,7 @@ import { useEquippedLoadout } from "../../game/inventory/store";
  */
 function Doll() {
   const loadout = useEquippedLoadout();
+  const raceId = usePlayerRace();
   const command = useRef(createAnimationCommand(loadout.mainHand.animations.combatIdle));
   const time = useRef(0);
   const equipped = useRef(true);
@@ -29,6 +31,7 @@ function Doll() {
       animationCommandRef={command}
       animationTimeRef={time}
       weaponProfile={loadout.mainHand.visual}
+      raceId={raceId}
       modelOffsetY={CHARACTER_MODEL_OFFSET}
       equipped
       equippedRef={equipped}
