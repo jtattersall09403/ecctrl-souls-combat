@@ -5,6 +5,7 @@ import {
   isEquipped,
   type EquipRejection,
 } from "./inventory";
+import { itemStatLines, type ItemStatLine } from "./itemStats";
 import { tryItemById } from "./registry";
 import { ITEM_CATEGORIES, type EquipSlot, type Inventory, type ItemCategory, type ItemDefinition } from "./types";
 
@@ -42,6 +43,11 @@ export type InventoryCell = {
   /** Present when the item works but its presentation is incomplete. */
   provisional?: string;
   /**
+   * Everything the item's numbers say, already worded. The UI decides how much
+   * room it has for them; it never decides what they are.
+   */
+  stats: readonly ItemStatLine[];
+  /**
    * Why this item cannot be equipped right now, if it cannot. A refusal the
    * player can see beats a click that silently does nothing.
    */
@@ -53,6 +59,8 @@ export type EquippedSlotView = {
   label: string;
   cell: InventoryCell | null;
 };
+
+export type { ItemStatLine };
 
 export type InventoryView = {
   title: string;
@@ -133,6 +141,7 @@ function toCell(
     slot: definition.equip?.slot ?? null,
     description: definition.description,
     provisional: definition.provisional,
+    stats: itemStatLines(definition),
     equipBlocked: equipBlockedReason(definition, inventory),
   };
 }

@@ -111,13 +111,20 @@ export type ArsenalShield = ShieldDefinition & {
  * property of the bow's shape and not of what it is made from.
  */
 function scaleRanged(base: RangedStats, material: MaterialProfile): RangedStats {
+  // Draw weight is mostly the *archer's* limit, not the bow's, so a better
+  // material moves it only a little. What it really buys is limbs that waste
+  // less and weigh less, which is where a good bow's extra speed comes from —
+  // and it keeps a daedric bow from quoting a draw weight no arm could pull.
+  const drawForce = 1 + (material.damageScale - 1) * 0.25;
+  const limbs = Math.sqrt(Math.max(0.4, material.damageScale));
   return {
     ...base,
-    peakDrawForceN: Math.round(base.peakDrawForceN * material.damageScale),
-    peakEfficiency: Math.min(0.97, base.peakEfficiency * (1 + (material.tier - 2) * 0.006)),
+    peakDrawForceN: Math.round(base.peakDrawForceN * drawForce),
+    peakEfficiency: Math.min(0.97, base.peakEfficiency * (1 + (material.tier - 2) * 0.008)),
+    virtualMassKg: Number((base.virtualMassKg / limbs).toFixed(4)),
     // A heavier pull costs more to hold, so the bow that hits hardest is also
     // the one you cannot stand around aiming with.
-    drawStaminaPerSecond: Number((base.drawStaminaPerSecond * material.damageScale).toFixed(1)),
+    drawStaminaPerSecond: Number((base.drawStaminaPerSecond * drawForce).toFixed(1)),
   };
 }
 

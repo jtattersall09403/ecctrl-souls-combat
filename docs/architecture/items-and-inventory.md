@@ -116,6 +116,24 @@ of them can accidentally become the place a rule lives.
 If you find yourself importing `registry.ts` or `inventory.ts` from `src/ui`,
 the seam has been broken.
 
+## Reading an item
+
+`itemStats.ts` turns an item into worded stat lines, and the view model carries
+them on every cell. Which stats a kind of item *has* is a property of the item,
+not of how it is drawn, so a controller layout, a shop screen and a compare
+tooltip all get the same list — and every figure is derived from the data combat
+uses, so there is no second set of display numbers to drift.
+
+The card itself is Morrowind's: a bordered panel with the whole stat block. It
+floats beside the cursor on a pointer device and docks to the bottom of the
+screen on a touch one, where there is no cursor to sit beside.
+
+One rule covers all three platforms: **select, then act**. A pointer inspects by
+hovering, so a click can equip outright. A finger and a D-pad cannot hover, so
+the first tap or press selects and the second equips. `useInventoryCursor` gives
+the keyboard and the pad the cursor they need — the inventory is a DOM screen,
+so the gamepad the rest of the game polls never reaches it otherwise.
+
 ## Re-skinning
 
 `src/ui/inventory/InventoryScreen.tsx` is layout only: it names semantic parts

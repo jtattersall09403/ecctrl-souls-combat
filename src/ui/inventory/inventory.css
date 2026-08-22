@@ -220,6 +220,7 @@
 .inv-search:focus { outline: none; border-color: var(--frame-light); }
 
 .inv-grid {
+  position: relative;
   min-height: 0;
   overflow-y: auto;
   align-content: start;
@@ -326,3 +327,37 @@
   .inv-doll-column { grid-template-rows: auto auto auto; }
   .inv-doll { height: 180px; }
 }
+
+/* --- the item card -------------------------------------------------------
+   Morrowind put an item's whole stat block in a bordered panel beside the
+   cursor. Floating over the grid on a pointer device, docked to the bottom on
+   a touch screen where there is no cursor to sit beside. */
+.inv-card {
+  position: absolute; right: 10px; bottom: 10px; width: 250px; z-index: 3;
+  padding: 8px 10px 9px; pointer-events: none;
+  background: linear-gradient(#171512, #0d0c0a);
+  border: 2px solid var(--frame); border-radius: 3px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .75);
+  color: var(--ink); font-size: 12px;
+}
+.inv-card[data-docked] {
+  position: fixed; left: 50%; right: auto; bottom: 12px;
+  transform: translateX(-50%); width: min(94vw, 420px);
+}
+.inv-card-title {
+  display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+  font: 600 14px Cinzel, serif; color: var(--ink-bright);
+  border-bottom: 1px solid var(--panel-edge); padding-bottom: 4px; margin-bottom: 5px;
+}
+.inv-card-count { color: var(--ink-dim); font-size: 12px; }
+.inv-card-stats { margin: 0; display: grid; gap: 1px; }
+.inv-card-stat { display: flex; justify-content: space-between; gap: 10px; }
+.inv-card-stat dt { color: var(--ink-dim); margin: 0; }
+.inv-card-stat dd { margin: 0; color: var(--ink-bright); text-align: right; }
+.inv-card-flavour { margin: 6px 0 0; color: var(--ink-dim); font-style: italic; line-height: 1.35; }
+.inv-card-action { margin: 5px 0 0; color: #cbb27a; font-size: 11px; letter-spacing: .05em; }
+.inv-card-warning { margin: 4px 0 0; color: #c8933f; font-size: 11px; }
+
+/* The cursor a pad or the arrow keys drive. Distinct from the worn frame, which
+   means something else entirely. */
+.inv-cell[data-cursor] { outline: 2px solid #d8c48a; outline-offset: -2px; }
