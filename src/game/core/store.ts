@@ -26,6 +26,9 @@ export const initialSnapshot: GameSnapshot = {
   enemyCount: DEFAULT_ENEMY_COUNT,
   showHitboxes: false,
   resetToken: 0,
+  aiming: false,
+  drawFraction: 0,
+  arrowsLeft: 0,
 };
 
 export const useGameStore = create<GameStore>((set) => ({

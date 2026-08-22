@@ -2,8 +2,9 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import type { Loadout } from "../equipment/types";
 import { ARMOUR_IDS, type ArmourDefinition } from "../equipment/armour";
+import type { ArrowDefinition } from "../equipment/arrows";
 import { STRAIGHT_SWORD } from "../equipment/arsenal";
-import { addItem, equipItem, removeItem, toggleEquip, unequipSlot } from "./inventory";
+import { addItem, countOf, equipItem, removeItem, toggleEquip, unequipSlot } from "./inventory";
 import { tryItemById } from "./registry";
 import { EMPTY_INVENTORY, type EquipSlot, type Inventory, type ItemCategory } from "./types";
 import type { InventorySort } from "./view";
@@ -34,6 +35,8 @@ type InventoryStore = {
 
   add: (itemId: string, count?: number) => void;
   remove: (itemId: string, count?: number) => void;
+  /** Idempotent: equipping what is already worn changes nothing. */
+  equip: (itemId: string) => void;
   toggle: (itemId: string) => void;
   unequip: (slot: EquipSlot) => void;
 };
@@ -66,6 +69,14 @@ const STARTING_ITEMS: readonly (readonly [string, number])[] = [
   ["iron-shield", 1],
   ["steel-shield", 1],
   ["elven-shield", 1],
+  ["steel-longbow", 1],
+  ["daedric-warbow", 1],
+  ["wood-shortbow", 1],
+  ["iron-war-arrow", 48],
+  ["iron-flight-arrow", 24],
+  ["steel-war-arrow", 24],
+  ["steel-hunting-arrow", 24],
+  ["daedric-war-arrow", 12],
   ["healing-draught", 5],
   ["lockpick", 12],
 ];
@@ -75,7 +86,7 @@ const STARTING_ITEMS: readonly (readonly [string, number])[] = [
  * a player picked is still readable on their character.
  */
 const STARTING_WORN: readonly string[] = [
-  STRAIGHT_SWORD.id, "steel-cuirass", "steel-gauntlets", "steel-boots",
+  STRAIGHT_SWORD.id, "iron-war-arrow", "steel-cuirass", "steel-gauntlets", "steel-boots",
 ];
 
 function startingInventory(): Inventory {
@@ -111,6 +122,10 @@ export const useInventoryStore = create<InventoryStore>((set) => ({
 
   add: (itemId, count = 1) => set((state) => ({ inventory: addItem(state.inventory, itemId, count) })),
   remove: (itemId, count = 1) => set((state) => ({ inventory: removeItem(state.inventory, itemId, count) })),
+  equip: (itemId) => set((state) => {
+    const result = equipItem(state.inventory, itemId);
+    return result.ok ? { inventory: result.inventory } : {};
+  }),
   toggle: (itemId) => set((state) => ({ inventory: toggleEquip(state.inventory, itemId) })),
   unequip: (slot) => set((state) => ({ inventory: unequipSlot(state.inventory, slot) })),
 }));
@@ -164,6 +179,21 @@ export function wornArmourFor(itemIds: readonly (string | undefined)[]): ArmourD
     if (equip?.kind === "apparel") worn.push(equip.armour);
   }
   return worn;
+}
+
+/**
+ * The arrow currently on the string, and how many are left.
+ *
+ * Null when the quiver is empty, which is what stops a bow being drawn at all.
+ */
+export function useEquippedArrow(): { arrow: ArrowDefinition; count: number } | null {
+  const ammoId = useInventoryStore((state) => state.inventory.equipped.ammo);
+  const count = useInventoryStore((state) => (ammoId ? countOf(state.inventory, ammoId) : 0));
+  return useMemo(() => {
+    const equip = ammoId ? tryItemById(ammoId)?.equip : null;
+    if (equip?.kind !== "ammunition" || count <= 0) return null;
+    return { arrow: equip.arrow, count };
+  }, [ammoId, count]);
 }
 
 export function useEquippedLoadout(): Loadout {

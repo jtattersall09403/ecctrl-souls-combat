@@ -22,6 +22,21 @@ button { color: inherit; font: inherit; }
   100% { opacity: 0; }
 }
 
+/* --- aiming reticle ------------------------------------------------------
+   Deliberately small and unlit: it marks where the arrow goes, and nothing
+   else. The ticks close onto the dot as the string comes back, which is the
+   only readout of draw strength a player needs while looking at a target. */
+.crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; z-index: 5; pointer-events: none; }
+.crosshair-dot { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: rgba(255,246,226,.95); box-shadow: 0 0 3px rgba(0,0,0,.9); }
+.crosshair-tick { position: absolute; background: rgba(255,246,226,.82); box-shadow: 0 0 3px rgba(0,0,0,.9); transition: transform .06s linear; }
+.crosshair-tick.up, .crosshair-tick.down { left: -1px; width: 2px; height: 9px; }
+.crosshair-tick.left, .crosshair-tick.right { top: -1px; height: 2px; width: 9px; }
+.crosshair-tick.up { top: 0; transform: translateY(calc(-1 * var(--spread) - 9px)); }
+.crosshair-tick.down { top: 0; transform: translateY(var(--spread)); }
+.crosshair-tick.left { left: 0; transform: translateX(calc(-1 * var(--spread) - 9px)); }
+.crosshair-tick.right { left: 0; transform: translateX(var(--spread)); }
+.crosshair-count { position: absolute; left: 14px; top: 20px; font: 600 12px Cinzel, serif; color: rgba(255,246,226,.7); text-shadow: 0 0 4px #000; }
+
 .player-vitals { position: absolute; left: max(22px, env(safe-area-inset-left)); top: max(20px, env(safe-area-inset-top)); width: min(340px, 44vw); }
 .vital-row { display: flex; gap: 8px; align-items: center; }
 .level-orb { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; border: 1px solid #9d875a; background: radial-gradient(circle, #29302d 20%, #0b0c0c 66%); font: 600 12px Cinzel, serif; box-shadow: 0 0 0 2px #171717; }

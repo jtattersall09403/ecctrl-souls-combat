@@ -85,6 +85,12 @@ type RigManifest = {
     weapon: string;
     weaponFallback: string;
     sheath: string;
+    /**
+     * Not an attachment point: the bone a first-person view collapses so the
+     * camera is not inside a face. Named by the rig because which bone is a
+     * head is a property of the skeleton, not of the game.
+     */
+    head?: string;
   };
   recommendedScale: number;
   targetHeightMeters: number;

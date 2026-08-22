@@ -1861,5 +1861,101 @@
         "weaponTipSpace": "pelvis-relative"
       }
     ]
+  },
+  "bow-shot": {
+    "playerActions": [
+      "idle",
+      "aim"
+    ],
+    "playerAnimations": [
+      "BOW_IDLE",
+      "BOW_DRAW",
+      "BOW_DRAWN",
+      "BOW_RELEASE"
+    ],
+    "enemyActions": [],
+    "enemyAnimations": [],
+    "requiredActionRuns": {
+      "player": [
+        "idle",
+        "aim"
+      ]
+    },
+    "requiredAnimationRuns": {
+      "player": [
+        "BOW_IDLE",
+        "BOW_DRAW",
+        "BOW_DRAWN",
+        "BOW_RELEASE",
+        "BOW_IDLE"
+      ]
+    },
+    "evidenceAnimations": {
+      "player": [
+        "BOW_DRAW",
+        "BOW_DRAWN",
+        "BOW_RELEASE"
+      ]
+    },
+    "motionChecks": [
+      {
+        "actor": "player",
+        "animations": [
+          "BOW_IDLE",
+          "BOW_DRAW",
+          "BOW_DRAWN",
+          "BOW_RELEASE"
+        ],
+        "bones": [
+          "upperArmL",
+          "forearmL",
+          "handL",
+          "upperArmR",
+          "forearmR",
+          "handR"
+        ],
+        "maxBoneAngularStepDegrees": 35,
+        "maxBoneAngularJerkDegreesPerSecondSquared": 20000,
+        "maxBonePositionStepMeters": 0.25,
+        "maxBoneVerticalSpeedMetersPerSecond": 8
+      }
+    ],
+    "transitionMotionChecks": []
+  },
+  "bow-partial-draw": {
+    "playerActions": [
+      "idle",
+      "aim"
+    ],
+    "playerAnimations": [
+      "BOW_IDLE",
+      "BOW_DRAW",
+      "BOW_RELEASE"
+    ],
+    "enemyActions": [],
+    "enemyAnimations": [],
+    "requiredActionRuns": {
+      "player": [
+        "idle",
+        "aim",
+        "idle"
+      ]
+    },
+    "requiredAnimationRuns": {
+      "player": [
+        "BOW_IDLE",
+        "BOW_DRAW",
+        "BOW_RELEASE",
+        "BOW_IDLE"
+      ]
+    },
+    "evidenceAnimations": {
+      "player": [
+        "BOW_DRAW",
+        "BOW_RELEASE"
+      ]
+    },
+    "motionChecks": [],
+    "transitionMotionChecks": []
   }
 }

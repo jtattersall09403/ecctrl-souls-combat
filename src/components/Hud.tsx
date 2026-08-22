@@ -98,6 +98,32 @@ function CameraZone() {
   );
 }
 
+/**
+ * The aiming reticle.
+ *
+ * Four ticks that open as the string comes back, so how far the shot is drawn
+ * is readable without looking away from the target — a partial draw is a real,
+ * much weaker shot and the player has to be able to see they are about to take
+ * one. The centre dot stays fixed: that is where the arrow goes.
+ */
+function Crosshair({ drawFraction, arrowsLeft }: { drawFraction: number; arrowsLeft: number }) {
+  // Widest at rest, closing onto the dot at full draw.
+  const spread = 26 - drawFraction * 18;
+  return (
+    <div className="crosshair" aria-hidden="true">
+      <span className="crosshair-dot" />
+      {(["up", "down", "left", "right"] as const).map((side) => (
+        <span
+          key={side}
+          className={`crosshair-tick ${side}`}
+          style={{ ["--spread" as string]: `${spread}px` }}
+        />
+      ))}
+      <span className="crosshair-count">{arrowsLeft}</span>
+    </div>
+  );
+}
+
 export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario | null }) {
   const state = useGameStore();
   const [help, setHelp] = useState(false);
@@ -132,6 +158,8 @@ export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario
           </>
         )}
       </section>
+
+      {state.aiming && <Crosshair drawFraction={state.drawFraction} arrowsLeft={state.arrowsLeft} />}
 
       {state.damagePulse > 0 && <div key={state.damagePulse} className="damage-vignette" aria-hidden="true" />}
       {state.message && (
@@ -212,6 +240,8 @@ export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario
               <dt>Jump</dt><dd>J</dd>
               <dt>Lock / heal / equip</dt><dd>Q / H / Tab</dd>
               <dt>Switch target</dt><dd>, / .</dd>
+              <dt>Bow: raise / draw</dt><dd>Mouse 1 tap / hold</dd>
+              <dt>Bow: lower</dt><dd>Mouse 2</dd>
             </dl>
             <dl>
               <dt>Move / camera</dt><dd>L stick / R stick</dd>
@@ -220,10 +250,12 @@ export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario
               <dt>Dodge / sprint</dt><dd>B tap / hold</dd>
               <dt>Jump</dt><dd>A / L3</dd>
               <dt>Lock / heal / equip</dt><dd>R3 / X / D-pad →</dd>
+              <dt>Bow: raise / draw</dt><dd>R tap / hold</dd>
+              <dt>Bow: lower</dt><dd>L</dd>
               <dt>Switch target</dt><dd>Right stick ←/→</dd>
             </dl>
           </div>
-          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Press R or ZR again during the current swing to chain without recovering between attacks. An attack pressed during a roll comes out as the roll ends. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab.</p>
+          <p>GameSir mapping uses Nintendo-layout button positions. Release dodge quickly to roll; hold while moving to sprint. Press R or ZR again during the current swing to chain without recovering between attacks. An attack pressed during a roll comes out as the roll ends. Parry during the enemy windup, then light attack at close range. Circle behind the enemy and use a light attack at close range to backstab. With a bow drawn, tap light to raise it into first person, hold light to draw — the longer the pull, the harder the shot, and holding at full draw bleeds stamina — and release to loose. Guard lowers the bow.</p>
         </aside>
       )}
 
@@ -235,7 +267,12 @@ export function Hud({ visualScenario = null }: { visualScenario?: VisualScenario
             <ActionButton action="lockOn" label="R3" sublabel="LOCK" className="lock" />
             <ActionButton action="targetLeft" label="◀" sublabel="TARGET" className="target-left" />
             <ActionButton action="targetRight" label="▶" sublabel="TARGET" className="target-right" />
-            <ActionButton action="guard" label="L" sublabel="GUARD" className="guard" />
+            <ActionButton
+              action="guard"
+              label="L"
+              sublabel={state.aiming ? "LOWER" : "GUARD"}
+              className="guard"
+            />
             <ActionButton action="parry" label="ZL" sublabel="PARRY" className="parry" />
             <ActionButton action="light" label="R" sublabel="LIGHT" className="light" />
             <ActionButton action="heavy" label="ZR" sublabel="HEAVY" className="heavy" />

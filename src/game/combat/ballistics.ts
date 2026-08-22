@@ -348,6 +348,21 @@ export type ImpactResult = {
 export const DAMAGE_PER_JOULE = 0.5;
 
 /**
+ * Joules of armour protection per point of the armour system's rating.
+ *
+ * The second and last unit conversion in this file. A steel cuirass rates 30,
+ * so it stops 90 J outright — enough that a hunting bow's broadhead is wasted
+ * on it and a full-draw warbow bodkin still goes through. Like
+ * `DAMAGE_PER_JOULE`, it maps between two scales rather than balancing either.
+ */
+export const JOULES_PER_ARMOUR_POINT = 3;
+
+/** Turn a worn armour rating into something the impact maths can use. */
+export function armourThresholdJoules(armourRating: number) {
+  return Math.max(0, armourRating) * JOULES_PER_ARMOUR_POINT;
+}
+
+/**
  * Resolve an arrow arriving somewhere.
  *
  * Obliquity first (a glancing hit skates), then the head against the armour,

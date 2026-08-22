@@ -290,6 +290,24 @@ idea of style or merely make the current numbers pass.
   onto it, or the piece exports skinned to a joint no actor has and cannot be
   worn at all. A validation that checks "is this group a bone?" *after* the
   import can never fire.
+- **A charge-up pose should be driven by its charge, not played at it.** Map the
+  gameplay fraction (draw, wind-up, channel) onto the clip's *time* and set that
+  time directly. The pose then is the state: a draw that stalls for stamina
+  stalls on screen and one that slips home slips home, with no code
+  synchronising two clocks that will drift.
+- **Restarting a clip that is already playing is a visible hitch.** Raising a bow
+  already in the hand changes the state, not the pose. Make the restart opt-out,
+  and the "unexpected rendered run" the visual contract reports is the symptom
+  to look for.
+- **A callback that reads the equipped weapon must depend on it.** `useCallback`
+  with an incomplete dependency list freezes whatever was in hand on the first
+  render, so a bow's idle comes back as the sword's. It is invisible while there
+  is only one weapon, and the tell is a stray animation command with an
+  unrelated clip name in it.
+- **Bethesda's `*arrowflight` NIFs are the projectile *effect*.** They carry a
+  motion-trail quad several times the shaft's length. Left in, the length
+  normalisation sizes the trail and the arrow comes out a fifth of its proper
+  size, in a shape that reads as an arrow at a glance. Drop the effect shapes.
 - **Transition defects hide between clips.** Always retain frames on both sides
   of every occurrence-specific boundary, including same-semantic restarts.
 - **Jitter has multiple causes.** Separate source-bone spikes, loop timeline

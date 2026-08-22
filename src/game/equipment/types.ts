@@ -266,8 +266,36 @@ export type PairedCriticalProfile = {
   rootMotionPolicy: "controller-aligned-strip-horizontal";
 };
 
+/**
+ * The shooting half of a bow's animation contract.
+ *
+ * Separate from the melee states because a bow has no moveset: the states here
+ * are a *cycle* (raise, draw, hold, loose) rather than a chain of attacks, and
+ * the draw is stretched to the bow's own draw time rather than played at rate.
+ */
+export type BowAnimationProfile = {
+  /** Bow in hand, string at rest. */
+  idle: AnimationState;
+  /** Nock through to full draw. Retimed to the bow's `drawSeconds`. */
+  draw: AnimationState;
+  /** Held at full draw. */
+  drawn: AnimationState;
+  /** Loose and follow-through. */
+  release: AnimationState;
+  /** Carrying a bow, out of aim. */
+  locomotion: {
+    walk: AnimationState;
+    walkBack: AnimationState;
+    strafeLeft: AnimationState;
+    strafeRight: AnimationState;
+    run: AnimationState;
+  };
+};
+
 export type WeaponAnimationProfile = {
   combatIdle: AnimationState;
+  /** Present only on bows; its presence is what makes a weapon shootable. */
+  bow?: BowAnimationProfile;
   sprintOverride?: AnimationState;
   guard: {
     enter: AnimationState;

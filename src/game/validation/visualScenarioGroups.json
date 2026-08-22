@@ -42,5 +42,9 @@
     "equip-cycle",
     "heal",
     "enemy-utility"
+  ],
+  "ranged": [
+    "bow-shot",
+    "bow-partial-draw"
   ]
 }

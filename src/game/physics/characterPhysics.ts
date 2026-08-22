@@ -52,3 +52,11 @@ export function jumpApexHeight(velocity: number, gravityScale: number, gravity =
 export function jumpApexTime(velocity: number, gravityScale: number, gravity = 9.81) {
   return velocity / (gravity * gravityScale);
 }
+
+/**
+ * Field of view of the ordinary follow camera, in degrees.
+ *
+ * Shared rather than repeated: the aim camera widens away from it and back, and
+ * two copies of the number would drift the moment either is tuned.
+ */
+export const BASE_FIELD_OF_VIEW = 48;

@@ -11,7 +11,7 @@ src/ui/inventory/     what it LOOKS like   (layout + one stylesheet)
 
 ## Items are generated, not written
 
-An arsenal of 41 weapons and shields and 35 pieces of armour is
+An arsenal of 53 weapons, shields and bows, 35 pieces of armour and 48 arrows is
 `(class × material)` resolved against what the pipeline actually built. Hand-writing a stat block per item does not
 survive a game's worth of content.
 
@@ -37,6 +37,27 @@ resolves to exactly the numbers the combat sandbox was tuned against.
   it weighs, a material says how good it is. Armour rating rides the same
   `guardScale` a shield does, so a material is worth the same at stopping a blow
   on either side of the equipment split.
+
+### Bows and arrows
+
+A bow class carries a `ranged` profile — draw weight, power stroke, limb mass,
+cadence — and that profile *is* what the bow does. There is no bow damage
+number anywhere. See
+[research/archery-ballistics.md](../research/archery-ballistics.md) for the
+model and the real-world figures it is calibrated against.
+
+Arrows are `shaft × material`: the shaft (flight, war, hunting, blunt) is a
+physical archetype, the material is what the head is made of. Four kinds of iron
+arrow share one GLB, because the shaft is composed by the game rather than built
+— adding "flight arrows" cost nothing in download size.
+
+Arrows occupy an `ammo` slot and are the one stackable equippable: what is
+nocked is what is worn. An empty quiver lowers the bow, because standing in a
+first-person aim with nothing to shoot is a dead end.
+
+Which hand holds a thing is a class property (`heldSocket`): a bow is drawn with
+the right hand and held in the left, which on this skeleton is the node Bethesda
+calls `Shield`.
 
 ### Wearing armour
 

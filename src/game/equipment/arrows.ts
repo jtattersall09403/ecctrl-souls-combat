@@ -1,3 +1,4 @@
+import manifest from "./generated/arrows.items.json";
 import type { ArrowPhysics, ArrowheadId } from "../combat/ballistics";
 import { ARROWHEADS } from "../combat/ballistics";
 import { MATERIAL_PROFILES, type MaterialId } from "./materials";
@@ -62,6 +63,10 @@ export const ARROW_SHAFTS: Readonly<Record<ArrowShaftId, ArrowShaftProfile>> = {
   },
 };
 
+type BuiltArrow = { material: string; asset: string; icon: string; lengthMeters: number };
+
+const BUILT = manifest.items as unknown as Record<string, BuiltArrow>;
+
 export type ArrowDefinition = {
   id: string;
   label: string;
@@ -123,3 +128,30 @@ export function defineArrow(
     description: `${shaft.description} ${ARROWHEADS[shaft.head].description}`,
   };
 }
+
+/**
+ * The arrow catalogue: every shaft archetype in every material the pipeline
+ * built a head for.
+ *
+ * Four kinds of iron arrow share one GLB. The shaft is a physical archetype the
+ * game composes, not a distinct mesh, so adding "flight arrows" cost nothing in
+ * download size and adding a material costs one line of pipeline config.
+ */
+export const ARROWS: Readonly<Record<string, ArrowDefinition>> = Object.fromEntries(
+  Object.entries(BUILT).flatMap(([builtId, built]) =>
+    (Object.keys(ARROW_SHAFTS) as ArrowShaftId[]).map((shaftId) => {
+      const id = `${built.material}-${shaftId}-arrow`;
+      return [id, defineArrow(id, shaftId, built.material as MaterialId, built.asset, built.icon)];
+    })),
+);
+
+export const ARROW_IDS: readonly string[] = Object.keys(ARROWS);
+
+export function arrowById(id: string): ArrowDefinition {
+  const arrow = ARROWS[id];
+  if (!arrow) throw new RangeError(`unknown arrow: ${id}`);
+  return arrow;
+}
+
+/** The arrow a new character is handed, and the fallback when the quiver empties. */
+export const DEFAULT_ARROW = arrowById("iron-war-arrow");

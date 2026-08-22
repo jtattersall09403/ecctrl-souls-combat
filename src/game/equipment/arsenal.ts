@@ -1,12 +1,14 @@
 import manifest from "./generated/arsenal.items.json";
 import { defineWeapon } from "./defineWeapon";
-import { MATERIAL_PROFILES, scaleGuardValue, type MaterialId } from "./materials";
+import { MATERIAL_PROFILES, scaleGuardValue, type MaterialId, type MaterialProfile } from "./materials";
 import { SHIELD_STABILITY_BAND, WEAPON_STABILITY_BAND, clampToBand } from "./guard";
 import { WEAPON_CLASSES, resolveMoveset, scaleMoveset } from "./weaponClasses";
 import { REFERENCE_MOVESET, ONE_HANDED_ANIMATIONS } from "./movesets/oneHanded";
+import { BOW_ANIMATIONS } from "./movesets/bow";
 import type {
   Absorption,
   AttributeMap,
+  RangedStats,
   ShieldDefinition,
   WeaponClass,
   WeaponDefinition,
@@ -100,6 +102,25 @@ export type ArsenalShield = ShieldDefinition & {
   description: string;
 };
 
+/**
+ * What a material does to a bow.
+ *
+ * Not a rarity multiplier: a better bow is a *stronger* bow that wastes less of
+ * what it stores, which is what limb material actually buys. Everything else —
+ * power stroke, limb mass, cadence — belongs to the class, because it is a
+ * property of the bow's shape and not of what it is made from.
+ */
+function scaleRanged(base: RangedStats, material: MaterialProfile): RangedStats {
+  return {
+    ...base,
+    peakDrawForceN: Math.round(base.peakDrawForceN * material.damageScale),
+    peakEfficiency: Math.min(0.97, base.peakEfficiency * (1 + (material.tier - 2) * 0.006)),
+    // A heavier pull costs more to hold, so the bow that hits hardest is also
+    // the one you cannot stand around aiming with.
+    drawStaminaPerSecond: Number((base.drawStaminaPerSecond * material.damageScale).toFixed(1)),
+  };
+}
+
 function buildWeapon(itemId: string, built: BuiltItem): ArsenalWeapon {
   const materialId = materialOf(itemId, built);
   const material = MATERIAL_PROFILES[materialId];
@@ -125,6 +146,7 @@ function buildWeapon(itemId: string, built: BuiltItem): ArsenalWeapon {
       ),
       scaling: { strength: 0.35, agility: 0.45 },
       occupiesOffHand: profile.twoHanded,
+      ...(profile.ranged ? { ranged: scaleRanged(profile.ranged, material) } : {}),
       guard: {
         stability: clampToBand(
           scaleGuardValue(profile.stability, material.guardScale),
@@ -138,10 +160,15 @@ function buildWeapon(itemId: string, built: BuiltItem): ArsenalWeapon {
     visual: {
       asset: built.asset,
       // Identity: the rig's socket convention is applied once by the actor.
-      held: { socket: "Weapon", localPosition: [0, 0, 0], localRotation: profile.heldRotation ?? [0, 0, 0, 1], localScale: 1 },
+      held: {
+        socket: profile.heldSocket ?? "Weapon",
+        localPosition: [0, 0, 0],
+        localRotation: profile.heldRotation ?? [0, 0, 0, 1],
+        localScale: 1,
+      },
       sheathed: { socket: built.sheathSocket, localPosition: [0, 0, 0], localRotation: [0, 0, 0, 1], localScale: 1 },
     },
-    animations: ONE_HANDED_ANIMATIONS,
+    animations: profile.ranged ? BOW_ANIMATIONS : ONE_HANDED_ANIMATIONS,
     moveset: scaleMoveset(REFERENCE_MOVESET, profile),
   });
 

@@ -1,7 +1,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { CapsuleCollider, CuboidCollider, Physics, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { Ecctrl, type EcctrlHandle } from "ecctrl";
-import { useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import * as THREE from "three";
 import { createAnimationCommand, updateAnimationCommand, type AnimationCommand } from "../game/anim/animationCommand";
 import {
@@ -27,7 +27,24 @@ import {
   PLAYER_DODGE_SPEED,
   RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
-import { useEquippedLoadout, useWornArmour, wornArmourFor } from "../game/inventory/store";
+import {
+  useEquippedArrow,
+  useEquippedLoadout,
+  useInventoryStore,
+  useWornArmour,
+  wornArmourFor,
+} from "../game/inventory/store";
+import {
+  IDLE_BOW_CYCLE,
+  advanceBowCycle,
+  aimBlend,
+  bowPose,
+  isAiming,
+  type BowCycle,
+} from "../game/combat/bowShot";
+import { armourThresholdJoules, launchSpeed, resolveArrowImpact } from "../game/combat/ballistics";
+import { clearArrows, fireArrow } from "../game/combat/arrowStore";
+import { Arrows, type ArrowHit } from "./Arrows";
 import { usePlayerRace } from "../game/actors/raceStore";
 import {
   DEFAULT_ENEMY_ARCHETYPE,
@@ -48,6 +65,7 @@ import {
   CHARACTER_SPRING_K,
   FALLING_GRAVITY_SCALE,
   JUMP_IMPULSE_DURATION,
+  BASE_FIELD_OF_VIEW,
   JUMP_GRAVITY_SCALE,
   JUMP_LAUNCH_ANIMATION_DURATION,
   JUMP_VELOCITY,
@@ -100,6 +118,69 @@ import { Arena } from "./Arena";
 const UP = new THREE.Vector3(0, 1, 0);
 const ENEMY_FELLED_MESSAGE_DURATION = 1.8;
 const PLAYER_HURTBOX_NAME = "player-hurtbox";
+
+/**
+ * Where the archer's eye is, relative to the physics body's centre.
+ *
+ * The actor is built to 1.85 m and the capsule centre sits `CHARACTER_BODY_
+ * CENTER_HEIGHT` off the floor, so this is the difference between that and eye
+ * level on a standing figure.
+ */
+const PLAYER_EYE_OFFSET_Y = 1.68 - CHARACTER_BODY_CENTER_HEIGHT;
+/**
+ * How far in front of the eye an arrow appears.
+ *
+ * Far enough that the *tail* of a 0.75 m shaft is clear of the archer's own
+ * navigation capsule: an arrow that starts half inside its owner is deflected
+ * by them on its first physics step.
+ */
+const ARROW_SPAWN_AHEAD_METERS = 0.85;
+/** Distance out along the aim axis the first-person camera looks. */
+const AIM_LOOK_DISTANCE_METERS = 40;
+/**
+ * How far in front of the head bone the eye sits.
+ *
+ * The head bone is at the base of the skull; a face is forward of it, and the
+ * near plane has to clear the neck and shoulders behind it.
+ */
+const EYE_AHEAD_OF_HEAD_METERS = 0.16;
+/** Field of view while aiming. Wider than the follow camera, as a bow sight is. */
+const AIM_FIELD_OF_VIEW = 68;
+/** How far above and below level the bow can be aimed, radians. */
+const AIM_PITCH_LIMIT = 1.15;
+
+/**
+ * The direction the archer is looking, from camera yaw and aim pitch.
+ *
+ * Matches `cameraRelativeDirection`'s convention — the camera sits at
+ * `(+sin yaw, +cos yaw)` behind the player and looks the other way — so the
+ * arrow leaves along exactly the axis the crosshair is on.
+ */
+/**
+ * The armour an arrow actually has to get through.
+ *
+ * An arrow strikes one place, so summing every worn piece would let a pair of
+ * boots protect a throat. The cuirass stands in for the whole target while
+ * there is no map from hurtbox bone to biped slot — the torso is most of the
+ * area a shot lands in — and anything else worn falls back to the average of
+ * what is there.
+ */
+function arrowFacingArmourRating(armourIds: readonly string[]) {
+  const worn = wornArmourFor(armourIds);
+  if (worn.length === 0) return 0;
+  const cuirass = worn.find((piece) => piece.slot === "chest");
+  if (cuirass) return cuirass.armourRating;
+  return worn.reduce((total, piece) => total + piece.armourRating, 0) / worn.length;
+}
+
+function aimDirectionInto(target: THREE.Vector3, yaw: number, pitch: number) {
+  const horizontal = Math.cos(pitch);
+  return target.set(
+    -Math.sin(yaw) * horizontal,
+    Math.sin(pitch),
+    -Math.cos(yaw) * horizontal,
+  ).normalize();
+}
 const DEFAULT_PLAYER_START = new THREE.Vector3(0, CHARACTER_BODY_CENTER_HEIGHT, 5.5);
 const DEFAULT_ENEMY_SPAWNS = [
   new THREE.Vector3(-3.4, CHARACTER_BODY_CENTER_HEIGHT, -4.5),
@@ -464,7 +545,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const playerRace = usePlayerRace();
   const playerLoadout = useEquippedLoadout();
   const playerArmour = useWornArmour();
+  const playerQuiver = useEquippedArrow();
   const playerWeapon = playerLoadout.mainHand;
+  const consumeArrow = useInventoryStore((state) => state.remove);
   const playerGuard = useMemo(() => activeGuardProfile(playerLoadout), [playerLoadout]);
   const playerStart = useMemo(
     () => visualScenario ? new THREE.Vector3(...visualScenario.player.position) : DEFAULT_PLAYER_START.clone(),
@@ -556,9 +639,18 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const bus = useMemo(() => new CombatEventBus(), []);
   const cameraYaw = useRef(0);
   const cameraPitch = useRef(0.34);
+  // Aiming has its own pitch because it means something different: the
+  // third-person pitch orbits the camera above the player, while this one is
+  // where the archer is actually looking.
+  const bowCycle = useRef<BowCycle>(IDLE_BOW_CYCLE);
+  const aimPitch = useRef(0);
+  const aimBlendAmount = useRef(0);
+  const playerHeadBone = useRef<THREE.Object3D | null>(null);
   const cameraPosition = useRef(new THREE.Vector3(0, 3.4, 10));
   const cameraLook = useRef(new THREE.Vector3());
   const tmp = useRef({
+    aimDirection: new THREE.Vector3(),
+    arrowOrigin: new THREE.Vector3(),
     toEnemy: new THREE.Vector3(),
     flat: new THREE.Vector3(),
     movement: new THREE.Vector3(),
@@ -576,6 +668,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   const lockedOnSnapshot = useGameStore((state) => state.lockedOn);
   const lockedTargetSnapshot = useGameStore((state) => state.lockedTarget);
   const playerActionSnapshot = useGameStore((state) => state.playerAction);
+  // Rendered state, not frame state: the actor is a React component and the
+  // head has to be collapsed through a prop rather than from the frame loop.
+  const aimingSnapshot = useGameStore((state) => state.aiming);
   const resetToken = useGameStore((state) => state.resetToken);
   const patch = useGameStore((state) => state.patch);
   const hudTimer = useRef(0);
@@ -665,6 +760,15 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     startAt = 0,
     direction?: THREE.Vector3,
     crossFadeDuration: number | null = null,
+    /**
+     * Restart the clip even if it is the one already playing.
+     *
+     * Almost always right: swinging twice must replay the swing. Raising a bow
+     * that is already in the hand is the exception — the state changes, the
+     * pose does not, and restarting it puts a visible hitch in a clip the
+     * player never saw stop.
+     */
+    restartAnimation = true,
   ) => {
     playerAction.current = action;
     playerActionTime.current = startAt;
@@ -692,8 +796,8 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     attackDashDistance.current = 0;
     healedThisAction.current = false;
     if (action === "guard") guardHitUntil.current = 0;
-    setAnim(animation, startAt, true, crossFadeDuration);
-  }, [setAnim]);
+    setAnim(animation, startAt, restartAnimation, crossFadeDuration);
+  }, [playerWeapon, setAnim]);
 
   const finishPlayerAction = useCallback(() => {
     const abandonedVictim = executionVictim.current;
@@ -716,7 +820,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     executionAlignmentStart.current = null;
     if (!lockedOn.current) player.current?.setLockForward(false);
     setAnim(equipped.current ? playerWeapon.animations.combatIdle : "IDLE");
-  }, [setAnim, setEnemyMode]);
+  }, [playerWeapon, setAnim, setEnemyMode]);
 
   const damageEnemy = useCallback((e: EnemyRuntime, execution: "riposte" | "backstab" | null = null) => {
     const attack = playerAttack.current;
@@ -792,6 +896,45 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     }
     return true;
   }, [announce, clearLockIfTarget, setEnemyAnim, setEnemyMode, startPlayerAction, triggerShake]);
+
+  /**
+   * An arrow arriving somewhere.
+   *
+   * Nothing here decides how much it hurts: the arrow's own speed at the moment
+   * of contact, the angle it struck at and what the target is wearing go into
+   * `resolveArrowImpact` and the answer comes back out. That is why there is no
+   * range falloff — a shot across the arena and a shot from the far wall differ
+   * because the arrow is slower, and for no other reason.
+   */
+  const handleArrowHit = useCallback((hit: ArrowHit) => {
+    if (!hit.target) return;
+    const victim = enemies.find((candidate) => candidate.hurtboxName === hit.target);
+    if (!victim || victim.fighter.health <= 0) return;
+    const f = victim.fighter;
+    const impact = resolveArrowImpact(hit.arrow.physics, hit.speed, {
+      armourThresholdJoules: armourThresholdJoules(arrowFacingArmourRating(f.archetype.armour)),
+      obliquityRad: hit.obliquityRad,
+    });
+    if (impact.damage <= 0) return;
+
+    f.health = Math.max(0, f.health - impact.damage);
+    triggerShake("enemyHit", { x: victim.position.x, z: victim.position.z });
+    if (f.health <= 0) {
+      clearLockIfTarget(victim);
+      setEnemyMode(victim, "dead", "DEATH");
+      combatAudio.play("death");
+      announce("ENEMY FELLED", ENEMY_FELLED_MESSAGE_DURATION);
+      return;
+    }
+    combatAudio.play("hit");
+    if (impact.penetrated) {
+      // A shaft through the mail staggers; one turned by it does not.
+      f.staggerDuration = f.archetype.stateDurations.staggerLight;
+      setEnemyMode(victim, "stagger", "HIT");
+    } else {
+      announce("THE ARROW TURNED", 0.7);
+    }
+  }, [announce, clearLockIfTarget, enemies, setEnemyMode, triggerShake]);
 
   const attemptEnemyHit = useCallback((e: EnemyRuntime) => {
     const f = e.fighter;
@@ -876,7 +1019,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     } else {
       startPlayerAction(reaction.action, reaction.animation);
     }
-  }, [announce, setAnim, setEnemyMode, startPlayerAction, triggerDamageVignette, triggerShake]);
+  }, [announce, playerGuard, playerWeapon, setAnim, setEnemyMode, startPlayerAction, triggerDamageVignette, triggerShake]);
 
   // The debug panel can grow/shrink the fight without a full reset. Only the
   // leading `enemyCount` enemies are simulated and rendered.
@@ -960,6 +1103,10 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       handle.setLockForward(false);
       handle.setMovement({ joystick: { x: 0, y: 0 }, run: false, jump: false });
     }
+    bowCycle.current = IDLE_BOW_CYCLE;
+    aimBlendAmount.current = 0;
+    aimPitch.current = 0;
+    clearArrows();
     playerHealth.current = visualScenario?.player.health ?? COMBAT_TUNING.maxHealth;
     playerStamina.current = COMBAT_TUNING.maxStamina;
     estus.current = 3;
@@ -1076,6 +1223,19 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
     }
     previousActiveCount.current = activeEnemies.length;
   }, [activeEnemies.length, camera, enemies, playerStart, playerStartYaw, resetToken, setAnim, setEnemyAnim, started, visualScenario]);
+
+  // A scene about a weapon has to be holding it. Equipped through the ordinary
+  // inventory rather than by assigning a loadout, so validation stays on the
+  // production path — and in its own effect, because writing to a store the
+  // component subscribes to re-renders it, and doing that inside the per-reset
+  // effect made that effect run again mid-scene.
+  useEffect(() => {
+    const staged = visualScenario?.player;
+    if (!staged) return;
+    const { equip } = useInventoryStore.getState();
+    if (staged.weaponId) equip(staged.weaponId);
+    if (staged.ammoId) equip(staged.ammoId);
+  }, [visualScenario]);
 
   useEffect(() => {
     if (enemyEnabled) return;
@@ -1228,6 +1388,76 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       backstepAttackQueued.current = true;
     }
 
+    // --- The bow -----------------------------------------------------------
+    // A bow is a cycle rather than a moveset, so it runs before the melee state
+    // machine and takes the action for as long as it is raised. `advanceBowCycle`
+    // owns every rule about it; everything here is the parts a reducer cannot
+    // do — where the camera looks, which arrow leaves the string, and what the
+    // quiver loses.
+    const ranged = playerWeapon.stats.ranged;
+    const bowAnimations = playerWeapon.animations.bow;
+    if (ranged && bowAnimations && equipped.current) {
+      const raised = isAiming(bowCycle.current);
+      const bowStep = advanceBowCycle(
+        bowCycle.current,
+        {
+          aimPressed: intent.lightPressed && (raised || playerAction.current === "idle"),
+          aimHeld: intent.lightHeld,
+          // An empty quiver lowers the bow: there is nothing to nock, and
+          // standing in a first-person aim with no arrow is a dead end.
+          exitPressed: intent.aimExitPressed || !playerQuiver,
+        },
+        ranged,
+        playerStamina.current,
+        delta,
+      );
+      bowCycle.current = bowStep.cycle;
+      if (bowStep.staminaSpent > 0) {
+        playerStamina.current = Math.max(0, playerStamina.current - bowStep.staminaSpent);
+        staminaCooldown.current = COMBAT_TUNING.staminaRegenDelay;
+      }
+      if (bowStep.entered) {
+        aimPitch.current = 0;
+        startPlayerAction("aim", bowAnimations.idle, 0, undefined, null, false);
+      }
+      if (bowStep.shot && playerQuiver) {
+        const arrow = playerQuiver.arrow;
+        const speed = launchSpeed(ranged, arrow.physics, bowStep.shot.drawFraction);
+        aimDirectionInto(tmp.current.aimDirection, cameraYaw.current, aimPitch.current);
+        tmp.current.arrowOrigin
+          .set(playerPos.x, playerPos.y + PLAYER_EYE_OFFSET_Y, playerPos.z)
+          .addScaledVector(tmp.current.aimDirection, ARROW_SPAWN_AHEAD_METERS);
+        fireArrow({
+          arrow,
+          shooter: PLAYER_HURTBOX_NAME,
+          origin: [tmp.current.arrowOrigin.x, tmp.current.arrowOrigin.y, tmp.current.arrowOrigin.z],
+          velocity: [
+            tmp.current.aimDirection.x * speed,
+            tmp.current.aimDirection.y * speed,
+            tmp.current.aimDirection.z * speed,
+          ],
+        });
+        consumeArrow(arrow.id, 1);
+        combatAudio.play("swing");
+      }
+      if (bowStep.exited) {
+        finishPlayerAction();
+      } else if (isAiming(bowStep.cycle)) {
+        const pose = bowPose(bowStep.cycle, bowAnimations);
+        if (pose.animation !== playerAnimationCommand.current.state) {
+          startPlayerAction("aim", pose.animation);
+        }
+        // The draw's clip time *is* its draw fraction: the pose is the state.
+        if (pose.clipTime !== null) playerActionTime.current = pose.clipTime;
+      }
+      aimBlendAmount.current = aimBlend(bowCycle.current);
+    } else if (isAiming(bowCycle.current)) {
+      // The bow was unequipped, swapped or dropped mid-aim.
+      bowCycle.current = IDLE_BOW_CYCLE;
+      aimBlendAmount.current = 0;
+      if (playerAction.current === "aim") finishPlayerAction();
+    }
+
     const canStartAction = playerAction.current === "idle" || playerAction.current === "guard";
     if (canStartAction && intent.equipPressed) {
       equipped.current = !equipped.current;
@@ -1340,7 +1570,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         }
         combatAudio.play("swing");
       }
-    } else if (playerAction.current === "idle" && intent.guardHeld && equipped.current) {
+    } else if (playerAction.current === "idle" && intent.guardHeld && equipped.current && !ranged) {
       startPlayerAction("guard", playerWeapon.animations.guard.enter);
       announce("GUARDING", 0.55);
     } else if (
@@ -2082,6 +2312,22 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         handle.setLockForward(true);
       }
       if (playerAction.current === "idle" || playerAction.current === "guard") body.setRotation(tmp.current.quaternion, true);
+    } else if (isAiming(bowCycle.current)) {
+      // Aiming looks where the archer looks: the same stick, a wider arc, and
+      // no orbit. Inverted relative to the third-person pitch because that one
+      // raises the camera while this one raises the bow.
+      cameraYaw.current -= intent.camera.x * delta * 2.35;
+      aimPitch.current = THREE.MathUtils.clamp(
+        aimPitch.current - intent.camera.y * delta * 1.7,
+        -AIM_PITCH_LIMIT,
+        AIM_PITCH_LIMIT,
+      );
+      if (!playerAttack.current) {
+        handle.setLockForward(false);
+        const freeForward = cameraRelativeDirection({ x: 0, y: 1 }, cameraYaw.current);
+        tmp.current.forward.set(freeForward.x, 0, freeForward.z).normalize();
+        handle.setForwardDir(tmp.current.forward);
+      }
     } else {
       cameraYaw.current -= intent.camera.x * delta * 2.35;
       cameraPitch.current = THREE.MathUtils.clamp(cameraPitch.current + intent.camera.y * delta * 1.7, 0.08, 0.78);
@@ -2118,6 +2364,32 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         .addScaledVector(tmp.current.forward, -0.65)
         .setY(playerPos.y + 2.65);
       tmp.current.desiredLook.copy(tmp.current.flat).setY(playerPos.y + 0.72);
+    } else if (aimBlendAmount.current > 0) {
+      // First person, blended in over the raise. Both ends of the blend are
+      // ordinary camera/look targets, so the existing smoothing does the zoom
+      // and there is no second camera path to keep in sync.
+      aimDirectionInto(tmp.current.aimDirection, cameraYaw.current, aimPitch.current);
+      const blend = aimBlendAmount.current;
+      const camDistance = 5.8;
+      const horizontal = Math.cos(cameraPitch.current) * camDistance;
+      tmp.current.desiredCamera.set(
+        playerPos.x + Math.sin(cameraYaw.current) * horizontal,
+        playerPos.y + 1.15 + Math.sin(cameraPitch.current) * camDistance,
+        playerPos.z + Math.cos(cameraYaw.current) * horizontal,
+      );
+      // The eye rides the skeleton when there is one to ride: the head is
+      // already posed by the draw, so the view leans in with it.
+      const head = playerHeadBone.current;
+      if (head) {
+        head.getWorldPosition(tmp.current.flat);
+        tmp.current.flat.addScaledVector(tmp.current.aimDirection, EYE_AHEAD_OF_HEAD_METERS);
+      } else {
+        tmp.current.flat.set(playerPos.x, playerPos.y + PLAYER_EYE_OFFSET_Y, playerPos.z);
+      }
+      tmp.current.desiredCamera.lerp(tmp.current.flat, blend);
+      tmp.current.desiredLook
+        .copy(tmp.current.flat)
+        .addScaledVector(tmp.current.aimDirection, AIM_LOOK_DISTANCE_METERS);
     } else {
       const camDistance = lockedOn.current ? 6.7 : 5.8;
       const horizontal = Math.cos(cameraPitch.current) * camDistance;
@@ -2129,10 +2401,27 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
       tmp.current.desiredLook.set(playerPos.x, playerPos.y + 0.55, playerPos.z);
       if (lockTargetActive && lockTarget) tmp.current.desiredLook.lerp(lockTarget.position, 0.62).setY(playerPos.y + 0.55);
     }
-    cameraPosition.current.lerp(tmp.current.desiredCamera, 1 - Math.exp(-delta * (criticalCameraActive ? 7 : 9)));
-    cameraLook.current.lerp(tmp.current.desiredLook, 1 - Math.exp(-delta * 12));
+    // An aimed camera has to answer the stick immediately: the smoothing that
+    // makes a third-person follow feel weighty makes a crosshair feel broken.
+    const aimed = aimBlendAmount.current >= 1;
+    cameraPosition.current.lerp(
+      tmp.current.desiredCamera,
+      aimed ? 1 : 1 - Math.exp(-delta * (criticalCameraActive ? 7 : 9)),
+    );
+    cameraLook.current.lerp(tmp.current.desiredLook, aimed ? 1 : 1 - Math.exp(-delta * 12));
     camera.position.copy(cameraPosition.current);
     camera.lookAt(cameraLook.current);
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const wanted = THREE.MathUtils.lerp(
+        BASE_FIELD_OF_VIEW,
+        AIM_FIELD_OF_VIEW,
+        aimBlendAmount.current,
+      );
+      if (Math.abs(camera.fov - wanted) > 0.01) {
+        camera.fov = wanted;
+        camera.updateProjectionMatrix();
+      }
+    }
     if (shake.current) {
       shake.current.elapsed += frameDelta;
       const sample = sampleHitShake(shake.current);
@@ -2161,6 +2450,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         enemyAction: hudEnemy ? hudEnemy.fighter.state : "dead",
         message: message.current,
         gamepad: input.gamepadName,
+        aiming: isAiming(bowCycle.current),
+        drawFraction: bowCycle.current.drawFraction,
+        arrowsLeft: playerQuiver?.count ?? 0,
       });
     }
   }, visualScenario ? VISUAL_FRAME_PHASE_PRIORITY.combat : 0);
@@ -2267,6 +2559,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           animationTimeRef={playerActionTime}
           weaponProfile={playerWeapon.visual}
           armour={playerArmour}
+          firstPerson={aimingSnapshot}
           raceId={playerRace}
           speedMultiplierRef={playerAnimationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
@@ -2274,6 +2567,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           equippedRef={equipped}
           weaponRef={playerWeaponObject}
           hurtboxRef={playerHurtbox}
+          headBoneRef={playerHeadBone}
           visualProbe={visualScenario ? playerVisualProbe.current : undefined}
           visualSupportY={0}
         />
@@ -2282,6 +2576,9 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
         ? <SkeletalHurtbox rig={playerHurtbox} name={PLAYER_HURTBOX_NAME} probe={Boolean(visualScenario)} />
         : <CapsuleHurtbox controller={player} name={PLAYER_HURTBOX_NAME} />}
       <WeaponHitbox weapon={playerWeaponObject} overlaps={playerWeaponOverlaps} name="player-weapon" active={playerHitboxActive} />
+      <Suspense fallback={null}>
+        <Arrows onHit={handleArrowHit} />
+      </Suspense>
       <ParryShield controller={player} overlaps={playerParryOverlaps} name="player-parry-shield" active={playerParryActive} />
       <AnalogueSpeedLimiter
         controller={player}

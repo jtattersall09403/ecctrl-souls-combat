@@ -1,5 +1,6 @@
 import { Canvas, advance } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
+import { BASE_FIELD_OF_VIEW } from "./game/physics/characterPhysics";
 import { CombatScene } from "./components/CombatScene";
 import { InventoryScreen } from "./ui/inventory/InventoryScreen";
 import { RacePicker } from "./ui/RacePicker";
@@ -123,7 +124,7 @@ export function App() {
         frameloop={visualScenario ? "never" : "always"}
         shadows={!visualFast}
         dpr={[1, quality]}
-        camera={{ fov: 48, near: 0.1, far: 70, position: [0, 3.5, 10] }}
+        camera={{ fov: BASE_FIELD_OF_VIEW, near: 0.1, far: 70, position: [0, 3.5, 10] }}
         gl={{ antialias: !visualFast, powerPreference: "high-performance", alpha: false }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = "srgb";

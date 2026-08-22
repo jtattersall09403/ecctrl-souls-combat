@@ -33,6 +33,8 @@ export const VISUAL_SCENARIO_IDS = [
   "backstep",
   "stationary-landing",
   "moving-landing",
+  "bow-shot",
+  "bow-partial-draw",
 ] as const;
 
 export type VisualScenarioId = typeof VISUAL_SCENARIO_IDS[number];
@@ -71,6 +73,14 @@ export type VisualScenario = {
     yaw: number;
     health?: number;
     equipped?: boolean;
+    /**
+     * Item to hold, when the scene is about a weapon the player does not start
+     * with. Equipped through the ordinary inventory, so the scene exercises the
+     * same path a player does rather than a validation-only shortcut.
+     */
+    weaponId?: string;
+    /** Ammunition to nock, for the same reason. */
+    ammoId?: string;
   };
   enemy: {
     enabled: boolean;
@@ -556,6 +566,46 @@ export const VISUAL_SCENARIOS: Record<VisualScenarioId, VisualScenario> = {
       { from: 0.45, to: 0.58, actions: ["jump"], move: [0, 1] },
       { from: 2.25, to: 4.2, actions: ["dodge"], move: [0, 1] },
       { from: 2.75, to: 2.88, actions: ["dodge", "jump"], move: [0, 1] },
+    ],
+  },
+  "bow-shot": {
+    id: "bow-shot",
+    label: "Bow → raise to first person, draw to full, and loose",
+    warmup: 0.5,
+    // A longbow is 1.7 s to nock and 2.4 s to full draw, and the scene has to
+    // show the follow-through as well.
+    duration: 8.2,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      // Tap to raise, release, then hold all the way to full draw and let go.
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      { from: 0.6, to: 5.2, actions: ["light"] },
+    ],
+  },
+  "bow-partial-draw": {
+    id: "bow-partial-draw",
+    label: "Bow → half draw, weak shot, then lower the bow",
+    warmup: 0.5,
+    duration: 6.4,
+    player: {
+      position: [0, Y, 6],
+      yaw: Math.PI,
+      weaponId: "steel-longbow",
+      ammoId: "steel-war-arrow",
+    },
+    enemy: { ...FACING_ENEMY, holdInitialState: true },
+    cues: [
+      { from: 0.15, to: 0.24, actions: ["light"] },
+      // Let go halfway through the pull: the shot leaves, and it is weaker.
+      { from: 0.6, to: 3.4, actions: ["light"] },
+      // Guard doubles as "lower the bow".
+      { from: 5.2, to: 5.3, actions: ["guard"] },
     ],
   },
 };

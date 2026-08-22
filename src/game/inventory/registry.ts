@@ -1,4 +1,5 @@
 import { ARMOUR } from "../equipment/armour";
+import { ARROWS } from "../equipment/arrows";
 import { ARSENAL_SHIELDS, ARSENAL_WEAPONS } from "../equipment/arsenal";
 import { WEAPON_CLASSES } from "../equipment/weaponClasses";
 import type { EquipSlot, ItemDefinition } from "./types";
@@ -39,6 +40,21 @@ for (const weapon of Object.values(ARSENAL_WEAPONS)) {
   });
 }
 
+for (const arrow of Object.values(ARROWS)) {
+  register({
+    id: arrow.id,
+    name: arrow.label,
+    category: "weapon",
+    icon: arrow.icon,
+    weightKg: arrow.weightKg,
+    value: arrow.value,
+    // Arrows are the one thing a player counts rather than owns.
+    stackable: true,
+    description: arrow.description,
+    equip: { slot: "ammo", kind: "ammunition", arrow },
+  });
+}
+
 for (const piece of Object.values(ARMOUR)) {
   register({
     id: piece.id,
@@ -50,7 +66,7 @@ for (const piece of Object.values(ARMOUR)) {
     stackable: false,
     description: piece.description,
     equip: {
-      slot: piece.slot as Exclude<EquipSlot, "mainHand" | "offHand">,
+      slot: piece.slot as Exclude<EquipSlot, "mainHand" | "offHand" | "ammo">,
       kind: "apparel",
       armour: piece,
     },

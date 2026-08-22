@@ -54,6 +54,12 @@ const RIG_URL = `${import.meta.env.BASE_URL}${RIG_GLB}?v=${RIG_REVISION}`;
 
 const NO_ARMOUR: readonly ArmourDefinition[] = [];
 
+/**
+ * Not zero: a zero-scaled bone produces a singular matrix, which turns every
+ * vertex it skins into NaN and takes the whole mesh's bounding box with it.
+ */
+const FIRST_PERSON_HEAD_SCALE = 0.001;
+
 function raceUrl(race: RaceDefinition) {
   return `${import.meta.env.BASE_URL}${race.asset}?v=${race.revision}`;
 }
@@ -145,10 +151,12 @@ export function SkyrimFighter({
   weaponRef,
   targetAnchorRef,
   hurtboxRef,
+  headBoneRef,
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
   armour = NO_ARMOUR,
+  firstPerson = false,
   raceId = DEFAULT_RACE,
   modelOffsetY = CHARACTER_MODEL_OFFSET,
   validationTint,
@@ -164,12 +172,28 @@ export function SkyrimFighter({
   targetAnchorRef?: MutableRefObject<THREE.Object3D | null>;
   /** Receives this actor's live skeleton-fitted combat capsules. */
   hurtboxRef?: HurtboxRigRef;
+  /**
+   * Receives the live head bone, for a first-person camera to sit on.
+   *
+   * Anchoring the eye to the skeleton rather than to a measured height is what
+   * makes the view track the pose: an archer's head comes to the string, and a
+   * camera pinned at a constant height would not.
+   */
+  headBoneRef?: MutableRefObject<THREE.Object3D | null>;
   animationTimeRef?: MutableRefObject<number>;
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
   /** Worn armour. Each piece is skinned to the shared rig and hides what it covers. */
   armour?: readonly ArmourDefinition[];
+  /**
+   * The camera is inside this actor's head.
+   *
+   * Collapses the head bone rather than hiding meshes: eyes, mouth, hair and a
+   * helmet are all weighted to it, so scaling the bone away takes every one of
+   * them with it and nothing has to know which mesh is a face on which race.
+   */
+  firstPerson?: boolean;
   /** Which body to mount on the shared rig. */
   raceId?: RaceId;
   modelOffsetY?: number;
@@ -210,6 +234,25 @@ export function SkyrimFighter({
   }, [weaponGltf.scene]);
   const weaponMount = useMemo(() => new THREE.Group(), []);
   const healingFlask = useMemo(() => createHealingFlask(), []);
+
+  const headBone = useMemo(
+    () => (RIG_SOCKETS.head ? model.getObjectByName(sanitizeBoneName(RIG_SOCKETS.head)) ?? null : null),
+    [model],
+  );
+  // Restored on the way out, so the actor is left exactly as it was found.
+  useLayoutEffect(() => {
+    if (!headBone) return;
+    headBone.scale.setScalar(firstPerson ? FIRST_PERSON_HEAD_SCALE : 1);
+    return () => { headBone.scale.setScalar(1); };
+  }, [firstPerson, headBone]);
+
+  useLayoutEffect(() => {
+    if (!headBoneRef) return;
+    headBoneRef.current = headBone;
+    return () => {
+      if (headBoneRef.current === headBone) headBoneRef.current = null;
+    };
+  }, [headBone, headBoneRef]);
 
   const previousAction = useRef<THREE.AnimationAction | null>(null);
   const fadingFromAction = useRef<THREE.AnimationAction | null>(null);

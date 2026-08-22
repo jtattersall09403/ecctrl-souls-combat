@@ -49,6 +49,14 @@ export type WeaponClassProfile = {
   physicalAbsorption: number;
   /** Sheath socket on the rig; the pipeline records the same value per item. */
   sheathSocket: string;
+  /**
+   * Attach node this class is *held* on, when it is not the right hand.
+   *
+   * A bow is drawn with the right hand and held in the left, which on this
+   * skeleton is the node Bethesda calls `Shield`. Which hand holds a thing is a
+   * property of the kind of thing it is, so it belongs to the class.
+   */
+  heldSocket?: string;
   /** Class-specific held-socket offset, on top of the rig convention. */
   heldRotation?: readonly [number, number, number, number];
   /**
@@ -137,6 +145,7 @@ export const WEAPON_CLASSES: Readonly<Record<WeaponClass, WeaponClassProfile>> =
     lengthMeters: 1.25, weightKg: 1.4, speedScale: 1.2, reachBonus: 0,
     powerScale: 0.35, staminaScale: 0.8, stability: 0.18, physicalAbsorption: 0.25,
     sheathSocket: "WeaponBow",
+    heldSocket: "Shield",
     ranged: {
       // ~65 lbf. A bow a hunter carries all day and can draw from a crouch.
       peakDrawForceN: 289, powerStrokeMeters: 0.52, drawCurve: "recurve",
@@ -150,6 +159,7 @@ export const WEAPON_CLASSES: Readonly<Record<WeaponClass, WeaponClassProfile>> =
     lengthMeters: 1.75, weightKg: 1.9, speedScale: 1.2, reachBonus: 0,
     powerScale: 0.4, staminaScale: 0.85, stability: 0.2, physicalAbsorption: 0.3,
     sheathSocket: "WeaponBow",
+    heldSocket: "Shield",
     ranged: {
       // ~105 lbf, the middle of the surviving Mary Rose range.
       peakDrawForceN: 467, powerStrokeMeters: 0.58, drawCurve: "linear",
@@ -163,6 +173,7 @@ export const WEAPON_CLASSES: Readonly<Record<WeaponClass, WeaponClassProfile>> =
     lengthMeters: 1.9, weightKg: 2.3, speedScale: 1.25, reachBonus: 0,
     powerScale: 0.45, staminaScale: 0.95, stability: 0.22, physicalAbsorption: 0.32,
     sheathSocket: "WeaponBow",
+    heldSocket: "Shield",
     ranged: {
       // 150 lbf over a 0.60 m power stroke: the anchor the whole model is
       // calibrated against. With a 96 g war shaft it throws 53 m/s.

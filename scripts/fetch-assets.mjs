@@ -130,7 +130,23 @@ for (const [id, piece] of pieces) {
   }
 }
 
+// Arrows are their own set: one mesh per material, which the game composes
+// into shaft archetypes. A missing one is an invisible projectile.
+const quiver = JSON.parse(await readFile(
+  new URL("../src/game/equipment/generated/arrows.items.json", import.meta.url),
+  "utf8",
+));
+const shafts = Object.entries(quiver.items ?? {});
+if (shafts.length === 0) throw new Error("Arrow manifest declares no arrows");
+for (const [id, shaft] of shafts) {
+  if (typeof shaft.asset !== "string" || typeof shaft.icon !== "string") {
+    throw new Error(`Arrow ${id} is missing its asset or icon path`);
+  }
+  await assertBinaryGltf(shaft.asset);
+  await assertReadable(shaft.icon);
+}
+
 console.log(
-  `verified rig, ${races.length} race bodies, ${items.length} arsenal items `
-  + `and ${pieces.length} armour pieces`,
+  `verified rig, ${races.length} race bodies, ${items.length} arsenal items, `
+  + `${pieces.length} armour pieces and ${shafts.length} arrows`,
 );

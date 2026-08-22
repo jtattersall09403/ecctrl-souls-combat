@@ -2,6 +2,14 @@ export type Vec2 = { x: number; y: number };
 
 export type CombatAction =
   | "idle"
+  /** Bow raised, first person, string at rest. */
+  | "aim"
+  /** Pulling to full draw. */
+  | "draw"
+  /** Held at draw, bleeding stamina. */
+  | "drawn"
+  /** Loosed; the follow-through before the bow can be drawn again. */
+  | "loose"
   | "light1"
   | "light2"
   | "light3"
@@ -62,7 +70,18 @@ export type AnimationState =
   | "HIT_HEAVY"
   | "RECOIL"
   | "GUARD_BREAK"
-  | "DEATH";
+  | "DEATH"
+  | "BOW_IDLE"
+  | "BOW_WALK"
+  | "BOW_WALK_BACK"
+  | "BOW_STRAFE_LEFT"
+  | "BOW_STRAFE_RIGHT"
+  | "BOW_RUN"
+  | "BOW_DRAW"
+  | "BOW_DRAWN"
+  | "BOW_RELEASE"
+  | "BOW_EQUIP"
+  | "BOW_UNEQUIP";
 
 export type CombatPhase = "windup" | "active" | "recovery" | "none";
 
@@ -100,4 +119,10 @@ export type GameSnapshot = {
   enemyCount: number;
   showHitboxes: boolean;
   resetToken: number;
+  /** A bow is raised: the view is first person and the crosshair is up. */
+  aiming: boolean;
+  /** 0-1 of full draw, for the crosshair to open on. */
+  drawFraction: number;
+  /** Arrows of the equipped kind still in the quiver. */
+  arrowsLeft: number;
 };
