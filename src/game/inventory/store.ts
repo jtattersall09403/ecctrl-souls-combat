@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import type { Loadout } from "../equipment/types";
+import { ARMOUR_IDS, type ArmourDefinition } from "../equipment/armour";
 import { STRAIGHT_SWORD } from "../equipment/arsenal";
 import { addItem, equipItem, removeItem, toggleEquip, unequipSlot } from "./inventory";
 import { tryItemById } from "./registry";
@@ -65,18 +66,33 @@ const STARTING_ITEMS: readonly (readonly [string, number])[] = [
   ["iron-shield", 1],
   ["steel-shield", 1],
   ["elven-shield", 1],
-  ["hide-cuirass", 1],
   ["healing-draught", 5],
   ["lockpick", 12],
 ];
 
+/**
+ * Worn on the first frame. A mid-tier set with the head left bare, so the race
+ * a player picked is still readable on their character.
+ */
+const STARTING_WORN: readonly string[] = [
+  STRAIGHT_SWORD.id, "steel-cuirass", "steel-gauntlets", "steel-boots",
+];
+
 function startingInventory(): Inventory {
-  let inventory: Inventory = { ...EMPTY_INVENTORY, gold: 240 };
+  // A sandbox carries the whole armoury, so it gets a sandbox's back. The
+  // encumbrance *rule* is unchanged; only this starting character's limit is.
+  let inventory: Inventory = { ...EMPTY_INVENTORY, gold: 240, capacityKg: 420 };
   for (const [itemId, count] of STARTING_ITEMS) {
     if (tryItemById(itemId)) inventory = addItem(inventory, itemId, count);
   }
-  const equipped = equipItem(inventory, STRAIGHT_SWORD.id);
-  return equipped.ok ? equipped.inventory : inventory;
+  // Every built piece, rather than a hand-kept list: the armoury is generated,
+  // and a sandbox that cannot try on what was built is not testing it.
+  for (const id of ARMOUR_IDS) inventory = addItem(inventory, id, 1);
+  for (const id of STARTING_WORN) {
+    const equipped = equipItem(inventory, id);
+    if (equipped.ok) inventory = equipped.inventory;
+  }
+  return inventory;
 }
 
 export const useInventoryStore = create<InventoryStore>((set) => ({
@@ -126,6 +142,30 @@ export function loadoutFrom(inventory: Inventory): Loadout {
  * an object returns a new reference every render, which zustand reads as a
  * change and React reads as an infinite update loop.
  */
+/**
+ * Subscribe to the player's worn armour.
+ *
+ * Same shape of care as the loadout above: select the slot *ids*, then resolve,
+ * so the returned array only changes identity when what is worn changes.
+ */
+export function useWornArmour(): readonly ArmourDefinition[] {
+  const head = useInventoryStore((state) => state.inventory.equipped.head);
+  const chest = useInventoryStore((state) => state.inventory.equipped.chest);
+  const hands = useInventoryStore((state) => state.inventory.equipped.hands);
+  const feet = useInventoryStore((state) => state.inventory.equipped.feet);
+  return useMemo(() => wornArmourFor([head, chest, hands, feet]), [head, chest, hands, feet]);
+}
+
+/** The armour among a set of equipped item ids, in slot order. */
+export function wornArmourFor(itemIds: readonly (string | undefined)[]): ArmourDefinition[] {
+  const worn: ArmourDefinition[] = [];
+  for (const id of itemIds) {
+    const equip = id ? tryItemById(id)?.equip : null;
+    if (equip?.kind === "apparel") worn.push(equip.armour);
+  }
+  return worn;
+}
+
 export function useEquippedLoadout(): Loadout {
   const mainId = useInventoryStore((state) => state.inventory.equipped.mainHand);
   const offId = useInventoryStore((state) => state.inventory.equipped.offHand);

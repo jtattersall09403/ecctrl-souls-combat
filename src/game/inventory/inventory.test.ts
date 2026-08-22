@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+import { armourById } from "../equipment/armour";
 import {
   addItem,
   armourRating,
@@ -129,9 +131,18 @@ describe("equipping", () => {
   });
 
   it("adds worn apparel to the armour rating", () => {
-    const inventory = toggleEquip(addItem(base, "hide-cuirass"), "hide-cuirass");
-    expect(armourRating(inventory)).toBe(20);
-    expect(armourRating(unequipSlot(inventory, "chest"))).toBe(0);
+    const cuirass = armourById("steel-cuirass");
+    const helmet = armourById("steel-helmet");
+    let inventory = toggleEquip(addItem(base, cuirass.id), cuirass.id);
+    expect(armourRating(inventory)).toBe(cuirass.armourRating);
+    inventory = toggleEquip(addItem(inventory, helmet.id), helmet.id);
+    expect(armourRating(inventory)).toBe(cuirass.armourRating + helmet.armourRating);
+    expect(armourRating(unequipSlot(inventory, "chest"))).toBe(helmet.armourRating);
+  });
+
+  it("rates a heavier material above a lighter one in the same slot", () => {
+    expect(armourById("daedric-cuirass").armourRating)
+      .toBeGreaterThan(armourById("studded-cuirass").armourRating);
   });
 });
 

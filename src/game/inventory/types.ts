@@ -1,4 +1,8 @@
-import type { ShieldDefinition, WeaponDefinition } from "../equipment/types";
+import type { ArmourDefinition } from "../equipment/armour";
+import type { EquipSlot, ShieldDefinition, WeaponDefinition } from "../equipment/types";
+
+export { EQUIP_SLOTS } from "../equipment/types";
+export type { EquipSlot } from "../equipment/types";
 
 /**
  * Inventory vocabulary.
@@ -9,21 +13,6 @@ import type { ShieldDefinition, WeaponDefinition } from "../equipment/types";
  * crosses between them is the view model in `view.ts`.
  */
 
-/** Where a thing can be worn or held. One item per slot. */
-export type EquipSlot =
-  | "mainHand"
-  | "offHand"
-  | "head"
-  | "chest"
-  | "hands"
-  | "feet"
-  | "amulet"
-  | "ring";
-
-export const EQUIP_SLOTS: readonly EquipSlot[] = [
-  "mainHand", "offHand", "head", "chest", "hands", "feet", "amulet", "ring",
-];
-
 /** Top-level filter tabs. Mirrors the categories a player thinks in. */
 export type ItemCategory = "weapon" | "apparel" | "magic" | "misc";
 
@@ -33,7 +22,7 @@ export const ITEM_CATEGORIES: readonly ItemCategory[] = ["weapon", "apparel", "m
 export type ItemEquipProfile =
   | { slot: "mainHand"; kind: "weapon"; weapon: WeaponDefinition }
   | { slot: "offHand"; kind: "shield"; shield: ShieldDefinition }
-  | { slot: Exclude<EquipSlot, "mainHand" | "offHand">; kind: "apparel"; armourRating: number };
+  | { slot: Exclude<EquipSlot, "mainHand" | "offHand">; kind: "apparel"; armour: ArmourDefinition };
 
 export type ItemDefinition = {
   id: string;

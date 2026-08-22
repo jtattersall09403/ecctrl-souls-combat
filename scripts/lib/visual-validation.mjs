@@ -229,6 +229,9 @@ function createActorSummary(actor, frames) {
   const animationSamples = {};
   let minMeshGap = Number.POSITIVE_INFINITY;
   let minMeshGapTime = null;
+  // Which mesh was the lowest one. With worn armour an actor has a dozen
+  // meshes, and "something penetrated the floor" is not a diagnosis.
+  let minMeshGapMesh = null;
   let minGroundCorrection = Number.POSITIVE_INFINITY;
   let maxGroundCorrection = Number.NEGATIVE_INFINITY;
   let minNonFloorGroundCorrection = Number.POSITIVE_INFINITY;
@@ -277,6 +280,14 @@ function createActorSummary(actor, frames) {
     if (finite(sample.meshGap) && sample.meshGap < minMeshGap) {
       minMeshGap = sample.meshGap;
       minMeshGapTime = frame.time;
+      minMeshGapMesh = null;
+      let lowest = Number.POSITIVE_INFINITY;
+      for (const [name, bounds] of Object.entries(sample.meshBounds ?? {})) {
+        if (bounds?.min?.[1] < lowest) {
+          lowest = bounds.min[1];
+          minMeshGapMesh = name;
+        }
+      }
     }
     if (finite(sample.groundCorrectionY)) {
       minGroundCorrection = Math.min(minGroundCorrection, sample.groundCorrectionY);
@@ -398,6 +409,7 @@ function createActorSummary(actor, frames) {
     maxWorldUpTiltTime: maxWorldUpTiltTime === null ? null : round(maxWorldUpTiltTime, 3),
     minMeshGapMeters: round(minMeshGap),
     minMeshGapTime: minMeshGapTime === null ? null : round(minMeshGapTime, 3),
+    minMeshGapMesh,
     minGroundCorrectionMeters: round(minGroundCorrection),
     maxGroundCorrectionMeters: round(maxGroundCorrection),
     minNonFloorGroundCorrectionMeters: finite(minNonFloorGroundCorrection)
@@ -777,7 +789,9 @@ export function evaluateVisualFrames(scenario, telemetry, expected) {
       failures.push(`${scenario}: ${actor} deformed-mesh support gap was not measurable`);
     } else if (summary.minMeshGapMeters < -limits.maxMeshPenetrationMeters) {
       failures.push(
-        `${scenario}: ${actor} mesh penetrated support by ${round(-summary.minMeshGapMeters)}m at ${summary.minMeshGapTime}s (limit ${limits.maxMeshPenetrationMeters}m)`,
+        `${scenario}: ${actor} mesh penetrated support by ${round(-summary.minMeshGapMeters)}m at ${summary.minMeshGapTime}s`
+        + `${summary.minMeshGapMesh ? ` (deepest mesh: ${summary.minMeshGapMesh})` : ""}`
+        + ` (limit ${limits.maxMeshPenetrationMeters}m)`,
       );
     }
     if (!finite(summary.minGroundCorrectionMeters) || !finite(summary.maxGroundCorrectionMeters)) {

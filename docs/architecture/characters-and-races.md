@@ -17,6 +17,11 @@ build a race against a different skeleton, this stops working silently — which
 is why `fetch-assets` checks both halves against the hashes their manifests
 record.
 
+Armour is a **third** download, mounted the same way. See
+[items-and-inventory.md](items-and-inventory.md#wearing-armour); what matters
+here is that a race body records which biped slots each of its meshes occupies
+(`meshBipedSlots`), because that is what a worn piece hides.
+
 ## What a race is
 
 `src/game/actors/races.ts` reads the generated roster. A race is a body:

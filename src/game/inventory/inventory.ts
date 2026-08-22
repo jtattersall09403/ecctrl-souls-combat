@@ -135,8 +135,8 @@ export function isOverEncumbered(inventory: Inventory) {
 export function armourRating(inventory: Inventory) {
   let rating = 0;
   for (const itemId of Object.values(inventory.equipped)) {
-    const equip = tryItemById(itemId)?.equip;
-    if (equip?.kind === "apparel") rating += equip.armourRating;
+    const equip = itemId ? tryItemById(itemId)?.equip : null;
+    if (equip?.kind === "apparel") rating += equip.armour.armourRating;
   }
   return rating;
 }

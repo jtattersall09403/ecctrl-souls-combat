@@ -36,6 +36,19 @@ async function assertMatchingGltf(path, expectedSha) {
   }
 }
 
+/** Node names and skin joint names out of a GLB's JSON chunk. */
+async function readGltfNames(path) {
+  const buffer = await readFile(publicUrl(path));
+  const chunkLength = buffer.readUInt32LE(12);
+  const json = JSON.parse(buffer.subarray(20, 20 + chunkLength).toString("utf8"));
+  const nodes = (json.nodes ?? []).map((node) => node.name);
+  const joints = new Set();
+  for (const skin of json.skins ?? []) {
+    for (const index of skin.joints) joints.add(nodes[index]);
+  }
+  return { nodes: new Set(nodes), joints };
+}
+
 async function assertReadable(path) {
   try {
     await readFile(publicUrl(path));
@@ -64,6 +77,12 @@ for (const [id, race] of races) {
   await assertMatchingGltf(race.asset, race.sha256);
 }
 
+// Every bone any race body offers. Armour is rebound onto these by name.
+const rigBones = new Set();
+for (const [, race] of races) {
+  for (const name of (await readGltfNames(race.asset)).nodes) rigBones.add(name);
+}
+
 // Every item the game can reference must actually be deployed. The arsenal
 // manifest is generated beside the GLBs it describes, so checking it here
 // catches a partial copy long before a player clicks an empty inventory cell.
@@ -81,6 +100,37 @@ for (const [id, item] of items) {
   await assertReadable(item.icon);
 }
 
+// Armour is skinned to the same rig, so a missing piece is not a cosmetic gap:
+// the wearer's own body meshes are hidden underneath it and the actor would
+// render with a hole where the cuirass should be.
+const armoury = JSON.parse(await readFile(
+  new URL("../src/game/equipment/generated/armour.items.json", import.meta.url),
+  "utf8",
+));
+const pieces = Object.entries(armoury.items ?? {});
+if (pieces.length === 0) throw new Error("Armour manifest declares no pieces");
+for (const [id, piece] of pieces) {
+  if (typeof piece.asset !== "string" || typeof piece.icon !== "string") {
+    throw new Error(`Armour piece ${id} is missing its asset or icon path`);
+  }
+  await assertBinaryGltf(piece.asset);
+  await assertReadable(piece.icon);
+  // Mounting rebinds the piece onto the wearer's skeleton by bone name, so a
+  // joint the bodies do not have makes the piece unwearable — invisible in game
+  // and impossible to diagnose from the symptom. Importing an armour NIF adds
+  // bones for unknown skin partitions, and Bethesda ships truncated names, so
+  // this has happened and will happen again.
+  const { joints } = await readGltfNames(piece.asset);
+  const stray = [...joints].filter((joint) => !rigBones.has(joint));
+  if (stray.length > 0) {
+    throw new Error(
+      `Armour piece ${id} is skinned to ${stray.join(", ")}, which no race body has. `
+      + "Rebuild it: pipeline/build_armour.py folds stray bones back onto the rig.",
+    );
+  }
+}
+
 console.log(
-  `verified rig, ${races.length} race bodies and ${items.length} arsenal items`,
+  `verified rig, ${races.length} race bodies, ${items.length} arsenal items `
+  + `and ${pieces.length} armour pieces`,
 );

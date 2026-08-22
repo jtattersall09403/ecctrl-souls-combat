@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { createAnimationCommand } from "../../game/anim/animationCommand";
 import { CHARACTER_MODEL_OFFSET } from "../../game/physics/characterPhysics";
 import { SkyrimFighter } from "../../components/SkyrimFighter";
-import { useEquippedLoadout } from "../../game/inventory/store";
+import { useEquippedLoadout, useWornArmour } from "../../game/inventory/store";
 import { usePlayerRace } from "../../game/actors/raceStore";
 
 /**
@@ -17,6 +17,7 @@ import { usePlayerRace } from "../../game/actors/raceStore";
  */
 function Doll() {
   const loadout = useEquippedLoadout();
+  const armour = useWornArmour();
   const raceId = usePlayerRace();
   const command = useRef(createAnimationCommand(loadout.mainHand.animations.combatIdle));
   const time = useRef(0);
@@ -31,6 +32,7 @@ function Doll() {
       animationCommandRef={command}
       animationTimeRef={time}
       weaponProfile={loadout.mainHand.visual}
+      armour={armour}
       raceId={raceId}
       modelOffsetY={CHARACTER_MODEL_OFFSET}
       equipped

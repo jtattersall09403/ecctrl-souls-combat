@@ -152,13 +152,19 @@
   border-top: 1px solid var(--panel-edge);
   background: rgba(0, 0, 0, 0.5);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px 10px;
+  /* One column, not two: two columns in a panel this narrow truncate every
+     worn item to "Steel S...", which is worse than a slightly shorter doll. */
+  grid-template-columns: 1fr;
+  gap: 1px;
 }
 
-.inv-slots li { display: flex; justify-content: space-between; gap: 6px; color: var(--ink-dim); }
+/* min-width: 0 twice, deliberately: a grid item and a flex item both default to
+   min-content width, and either one alone leaves the name clipped at the panel
+   edge instead of ellipsised. */
+.inv-slots li { display: flex; justify-content: space-between; gap: 6px; color: var(--ink-dim); min-width: 0; }
 .inv-slots li[data-filled] { color: var(--ink); }
-.inv-slot-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-slot-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.inv-slot-label { flex: none; }
 
 .inv-armor {
   margin: 0;

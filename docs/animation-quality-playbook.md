@@ -269,6 +269,27 @@ idea of style or merely make the current numbers pass.
   limb bones share their skin with twist partners and end up owning almost
   nothing. Anatomical bone length must come from the farthest child, because
   twist bones start at their parent's head and averaging collapses the span.
+- **Grounding calibration belongs to the body, not to what it wears.** Support
+  envelopes, sole markers and the mesh-penetration allowance are all fitted to
+  the bare body. Worn armour has no envelope of its own and legitimately reaches
+  past bare skin, so it must be excluded from the actor's measured surface —
+  folding it in compares a bare-body calibration against a shod silhouette and
+  fails a scene that looks perfectly correct.
+- **Do not raise a shod actor to stand on its soles.** A boot reaches a
+  centimetre or two below bare skin and its sole visibly clips the floor, and
+  every instinct says to lift the actor by that much. Three things go wrong, in
+  order: adding it to the root position is cancelled next frame, because the
+  solve reads the sole bones back out of the scene graph; raising the plane the
+  solve aims at instead folds the lift into `groundCorrection` and trips every
+  correction-magnitude limit; and once those are separated properly, *paired*
+  animations break, because they align two actors whose boots are not the same
+  thickness. Skyrim ships the same small clip. Accept it.
+- **Importing a garment mutates the armature.** PyNifly adds a bone for any skin
+  partition the rig lacks, and Bethesda ships truncated names (`NPC R Pauldro`).
+  Snapshot the rig's bones before the first mesh import and fold strays back
+  onto it, or the piece exports skinned to a joint no actor has and cannot be
+  worn at all. A validation that checks "is this group a bone?" *after* the
+  import can never fire.
 - **Transition defects hide between clips.** Always retain frames on both sides
   of every occurrence-specific boundary, including same-semantic restarts.
 - **Jitter has multiple causes.** Separate source-bone spikes, loop timeline

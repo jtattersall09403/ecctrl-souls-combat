@@ -1,6 +1,6 @@
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { animationMixerDelta, type AnimationCommand } from "../game/anim/animationCommand";
@@ -36,6 +36,9 @@ import type { AnimationState, WeaponSocketTransform, WeaponVisualProfile } from 
 import { VISUAL_PROBE_BONES, type ActorVisualProbe } from "../game/validation/actorVisualMetrics";
 import { VISUAL_FRAME_PHASE_PRIORITY } from "../game/validation/visualFrameMarker";
 import { DEFAULT_RACE, RIG_REVISION, raceById, type RaceDefinition, type RaceId } from "../game/actors/races";
+import type { ArmourDefinition } from "../game/equipment/armour";
+import type { MountedArmour } from "../game/actors/armourMounting";
+import { ArmourAttachments } from "./ArmourAttachments";
 import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
 
 /**
@@ -48,6 +51,8 @@ import type { HurtboxBone, HurtboxRigRef } from "./SkeletalHurtbox";
  * mounted, and `useAnimations` binds by name.
  */
 const RIG_URL = `${import.meta.env.BASE_URL}${RIG_GLB}?v=${RIG_REVISION}`;
+
+const NO_ARMOUR: readonly ArmourDefinition[] = [];
 
 function raceUrl(race: RaceDefinition) {
   return `${import.meta.env.BASE_URL}${race.asset}?v=${race.revision}`;
@@ -143,6 +148,7 @@ export function SkyrimFighter({
   animationTimeRef,
   speedMultiplierRef,
   weaponProfile,
+  armour = NO_ARMOUR,
   raceId = DEFAULT_RACE,
   modelOffsetY = CHARACTER_MODEL_OFFSET,
   validationTint,
@@ -162,6 +168,8 @@ export function SkyrimFighter({
   /** Extra multiplier on top of the manifest playbackRate for self-timed (locomotion) clips. */
   speedMultiplierRef?: MutableRefObject<number>;
   weaponProfile: WeaponVisualProfile;
+  /** Worn armour. Each piece is skinned to the shared rig and hides what it covers. */
+  armour?: readonly ArmourDefinition[];
   /** Which body to mount on the shared rig. */
   raceId?: RaceId;
   modelOffsetY?: number;
@@ -308,13 +316,31 @@ export function SkyrimFighter({
     () => Object.entries(VISUAL_PROBE_BONES).map(([id, name]) => [id, model.getObjectByName(name) ?? null] as const),
     [model],
   );
+  // Armour arrives after the body (its GLBs suspend separately), so re-collect
+  // when it does: this list is what drives the per-frame skeleton refresh and
+  // the actor's mesh bounds, and a cuirass left out of it would not deform.
+  const [armourRevision, setArmourRevision] = useState(0);
+  // Worn footwear stands the actor on its soles instead of its bare feet. The
+  // grounding solve aims at sole markers measured on a bare foot, so this is a
+  // constant lift on top of it rather than anything the solve has to know about.
+  // Worn meshes are excluded from the actor's measured surface. Every support
+  // envelope, sole marker and penetration allowance in this file was fitted to
+  // the *body*; armour has no envelope of its own and legitimately reaches a
+  // few millimetres past bare skin, so folding it into the same measurement
+  // would compare a bare-body calibration against a shod silhouette.
+  const armourMeshes = useRef<ReadonlySet<THREE.SkinnedMesh>>(new Set());
+  const onArmourChange = useCallback((mounted: MountedArmour | null) => {
+    armourMeshes.current = new Set(mounted?.meshes ?? []);
+    setArmourRevision((n) => n + 1);
+  }, []);
   const skinnedMeshes = useMemo(() => {
     const meshes: THREE.SkinnedMesh[] = [];
     model.traverse((object) => {
       if (object instanceof THREE.SkinnedMesh) meshes.push(object);
     });
     return meshes;
-  }, [model]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- armourRevision marks a mutation of `model`.
+  }, [model, armourRevision]);
 
   useLayoutEffect(() => {
     if (!visualProbe) return;
@@ -737,7 +763,7 @@ export function SkyrimFighter({
         mesh.computeBoundingBox();
         if (!mesh.boundingBox) continue;
         meshBoundsTmp.current.copy(mesh.boundingBox).applyMatrix4(mesh.matrixWorld);
-        boundsTmp.current.union(meshBoundsTmp.current);
+        if (!armourMeshes.current.has(mesh)) boundsTmp.current.union(meshBoundsTmp.current);
         meshBounds[mesh.name || mesh.uuid] = {
           min: meshBoundsTmp.current.min.toArray(),
           max: meshBoundsTmp.current.max.toArray(),
@@ -790,6 +816,16 @@ export function SkyrimFighter({
   return (
     <group ref={root} position={[0, modelOffsetY, 0]} scale={CHARACTER_SCALE} dispose={null}>
       <primitive object={model} />
+      {armour.length > 0 && (
+        <Suspense fallback={null}>
+          <ArmourAttachments
+            model={model}
+            armour={armour}
+            bodyMeshSlots={race.meshBipedSlots}
+            onMountedChange={onArmourChange}
+          />
+        </Suspense>
+      )}
     </group>
   );
 }

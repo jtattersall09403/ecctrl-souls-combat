@@ -27,7 +27,7 @@ import {
   PLAYER_DODGE_SPEED,
   RIPOSTE_WINDOW,
 } from "../game/combat/tuning";
-import { useEquippedLoadout } from "../game/inventory/store";
+import { useEquippedLoadout, useWornArmour, wornArmourFor } from "../game/inventory/store";
 import { usePlayerRace } from "../game/actors/raceStore";
 import {
   DEFAULT_ENEMY_ARCHETYPE,
@@ -394,6 +394,10 @@ function createEnemyRuntime(
 }
 
 function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRuntime; reticleVisible: boolean; validation: boolean }) {
+  const enemyArmour = useMemo(
+    () => wornArmourFor(runtime.archetype.armour),
+    [runtime.archetype.armour],
+  );
   return (
     <>
       <Ecctrl
@@ -425,6 +429,7 @@ function EnemyActor({ runtime, reticleVisible, validation }: { runtime: EnemyRun
           animationCommandRef={runtime.animCommand}
           animationTimeRef={runtime.actionTimeRef}
           weaponProfile={runtime.archetype.loadout.mainHand.visual}
+          armour={enemyArmour}
           raceId={runtime.archetype.race}
           speedMultiplierRef={runtime.animationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}
@@ -458,6 +463,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
   // them — including what a raised guard is made of.
   const playerRace = usePlayerRace();
   const playerLoadout = useEquippedLoadout();
+  const playerArmour = useWornArmour();
   const playerWeapon = playerLoadout.mainHand;
   const playerGuard = useMemo(() => activeGuardProfile(playerLoadout), [playerLoadout]);
   const playerStart = useMemo(
@@ -2260,6 +2266,7 @@ function Battle({ visualScenario }: { visualScenario: VisualScenario | null }) {
           animationCommandRef={playerAnimationCommand}
           animationTimeRef={playerActionTime}
           weaponProfile={playerWeapon.visual}
+          armour={playerArmour}
           raceId={playerRace}
           speedMultiplierRef={playerAnimationSpeed}
           modelOffsetY={CHARACTER_MODEL_OFFSET}

@@ -11,8 +11,8 @@ src/ui/inventory/     what it LOOKS like   (layout + one stylesheet)
 
 ## Items are generated, not written
 
-An arsenal of 41 weapons and shields is `(class × material)` resolved against
-what the pipeline actually built. Hand-writing a stat block per item does not
+An arsenal of 41 weapons and shields and 35 pieces of armour is
+`(class × material)` resolved against what the pipeline actually built. Hand-writing a stat block per item does not
 survive a game's worth of content.
 
 - **`weaponClasses.ts`** — how a kind of weapon *fights*: reach, speed, power,
@@ -31,6 +31,33 @@ tier is one entry in the material table.
 `STRAIGHT_SWORD` is unchanged by construction: steel sits at the middle of every
 material scale and `straightSword` at the middle of every class scale, so it
 resolves to exactly the numbers the combat sandbox was tuned against.
+
+- **`armour.ts`** — the same two axes for what you wear: a *slot* (cuirass,
+  gauntlets, boots, helmet) says what kind of protection it is and roughly what
+  it weighs, a material says how good it is. Armour rating rides the same
+  `guardScale` a shield does, so a material is worth the same at stopping a blow
+  on either side of the equipment split.
+
+### Wearing armour
+
+Armour is skinned to the same rig the bodies are, so a piece is not a prop on a
+bone: it is rebound onto *this* actor's skeleton and parented beside the body
+meshes. `src/game/actors/armourMounting.ts` does that, and it is deliberately
+plain three.js — an actor, a paper doll, a shop preview and a cutscene rig all
+mount armour with the same call.
+
+What a piece hides is read from the NIF's own dismember partitions at build time
+(`coversBipedSlots`) and matched against the body's per-mesh slots in the race
+roster (`meshBipedSlots`). Coverage is therefore a set intersection derived from
+the art, never a hand-kept list, and a renamed body mesh cannot silently leave a
+forearm poking through a gauntlet. Covered meshes are hidden rather than removed,
+so unequipping is free and the actor's fitted bounds do not change shape.
+
+**Pipeline invariant:** importing an armour NIF *adds* bones to the armature for
+any skin partition the rig lacks, and Bethesda's meshes contain truncated names
+(`NPC R Pauldro` for `NPC R Pauldron`). `build_armour.py` snapshots the rig's
+bones before the first import and folds strays back onto it, because a piece
+exported with a joint the actor's skeleton does not have cannot be worn at all.
 
 ### Guard stability
 

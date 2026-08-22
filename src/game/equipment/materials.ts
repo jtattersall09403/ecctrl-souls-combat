@@ -11,6 +11,7 @@ import type { AttributeMap, DamageType } from "./types";
  */
 
 export type MaterialId =
+  | "studded"
   | "iron"
   | "steel"
   | "imperial"
@@ -49,6 +50,12 @@ export type MaterialProfile = {
 };
 
 const MATERIALS: MaterialProfile[] = [
+  {
+    id: "studded", label: "Studded", tier: 1,
+    damageScale: 0.8, weightScale: 0.5, guardScale: 0.75, valuePerKg: 14,
+    requirementBonus: {},
+    description: "Boiled hide under iron rivets. Light, and honest about it.",
+  },
   {
     id: "iron", label: "Iron", tier: 1,
     damageScale: 0.85, weightScale: 1.05, guardScale: 0.9, valuePerKg: 8,

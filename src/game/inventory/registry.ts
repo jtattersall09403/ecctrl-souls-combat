@@ -1,6 +1,7 @@
+import { ARMOUR } from "../equipment/armour";
 import { ARSENAL_SHIELDS, ARSENAL_WEAPONS } from "../equipment/arsenal";
 import { WEAPON_CLASSES } from "../equipment/weaponClasses";
-import type { ItemDefinition } from "./types";
+import type { EquipSlot, ItemDefinition } from "./types";
 
 /**
  * The item catalogue.
@@ -35,6 +36,24 @@ for (const weapon of Object.values(ARSENAL_WEAPONS)) {
     provisional: weapon.borrowedMoveset
       ? `No ${profile.label.toLowerCase()} moveset yet — swings with the one-handed set.`
       : undefined,
+  });
+}
+
+for (const piece of Object.values(ARMOUR)) {
+  register({
+    id: piece.id,
+    name: piece.label,
+    category: "apparel",
+    icon: piece.icon,
+    weightKg: piece.weightKg,
+    value: piece.value,
+    stackable: false,
+    description: piece.description,
+    equip: {
+      slot: piece.slot as Exclude<EquipSlot, "mainHand" | "offHand">,
+      kind: "apparel",
+      armour: piece,
+    },
   });
 }
 
@@ -76,18 +95,6 @@ register({
   stackable: true,
   description: "Bent iron. Optimism.",
   equip: null,
-});
-register({
-  id: "hide-cuirass",
-  name: "Hide Cuirass",
-  category: "apparel",
-  icon: null,
-  weightKg: 5,
-  value: 50,
-  stackable: false,
-  description: "Boiled leather over a linen shirt.",
-  equip: { slot: "chest", kind: "apparel", armourRating: 20 },
-  provisional: "No armour meshes yet — worn stats apply, nothing is rendered.",
 });
 
 export const ITEMS: ReadonlyMap<string, ItemDefinition> = catalogue;

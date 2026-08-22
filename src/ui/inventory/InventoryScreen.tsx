@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useInventoryStore } from "../../game/inventory/store";
+import { EQUIP_SLOTS } from "../../game/inventory/types";
 import { buildInventoryView, type InventoryCell, type InventoryView } from "../../game/inventory/view";
 import { PaperDoll } from "./PaperDoll";
 import "./inventory.css";
@@ -113,7 +114,7 @@ export function InventoryScreen({ theme = "morrowind" }: { theme?: InventoryThem
               </span>
             </div>
             <div className="inv-doll">
-              <PaperDoll loadoutKey={`${inventory.equipped.mainHand ?? ""}|${inventory.equipped.offHand ?? ""}`} />
+              <PaperDoll loadoutKey={EQUIP_SLOTS.map((slot) => inventory.equipped[slot] ?? "").join("|")} />
               <ul className="inv-slots">
                 {view.slots.map((slot) => (
                   <li key={slot.slot} data-filled={slot.cell ? true : undefined}>

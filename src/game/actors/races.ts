@@ -22,9 +22,22 @@ export type RaceDefinition = {
   asset: string;
   /** Content hash, used to bust a stale browser cache after a rebuild. */
   revision: string;
+  /**
+   * Biped slots each body mesh occupies, read from the NIF's own dismember
+   * partitions at build time. Armour declares the same slots, so "this cuirass
+   * hides the torso" is a set intersection rather than a hand-kept list that
+   * silently rots when a body mesh is renamed.
+   */
+  meshBipedSlots: Readonly<Record<string, readonly number[]>>;
 };
 
-type BuiltRace = { label: string; description: string; asset: string; sha256: string };
+type BuiltRace = {
+  label: string;
+  description: string;
+  asset: string;
+  sha256: string;
+  meshBipedSlots?: Record<string, number[]>;
+};
 
 const BUILT = roster.races as unknown as Record<string, BuiltRace>;
 
@@ -35,6 +48,7 @@ export const RACES: Readonly<Record<RaceId, RaceDefinition>> = Object.fromEntrie
     description: race.description,
     asset: race.asset,
     revision: race.sha256.slice(0, 16),
+    meshBipedSlots: race.meshBipedSlots ?? {},
   }]),
 );
 

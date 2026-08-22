@@ -73,6 +73,8 @@ export type EnemyArchetype = {
   /** Which body this creature wears on the shared rig. */
   race: RaceId;
   loadout: Loadout;
+  /** Worn armour, by item id. Resolved at spawn so archetypes stay pure data. */
+  armour: readonly string[];
   locomotion: EnemyLocomotionProfile;
   decision: EnemyDecisionProfile;
   stateDurations: EnemyStateDurations;
@@ -92,6 +94,7 @@ export const HOLLOW_WARDEN: EnemyArchetype = {
   estus: 1,
   race: DEFAULT_RACE,
   loadout: { mainHand: STRAIGHT_SWORD, offHand: null },
+  armour: ["iron-cuirass", "iron-gauntlets", "iron-boots"],
   locomotion: {
     walkSpeed: 1.75,
     runSpeed: 4.5,

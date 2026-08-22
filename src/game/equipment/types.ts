@@ -7,6 +7,25 @@ import type { AnimationState } from "../core/types";
  * has to know about.
  */
 
+/**
+ * Where a thing can be worn or held. One item per slot. Lives here rather than
+ * with the inventory because equipment defines the slots and the inventory only
+ * fills them.
+ */
+export type EquipSlot =
+  | "mainHand"
+  | "offHand"
+  | "head"
+  | "chest"
+  | "hands"
+  | "feet"
+  | "amulet"
+  | "ring";
+
+export const EQUIP_SLOTS: readonly EquipSlot[] = [
+  "mainHand", "offHand", "head", "chest", "hands", "feet", "amulet", "ring",
+];
+
 export type DamageType = "physical" | "fire" | "frost" | "shock" | "magic" | "poison";
 
 /** Character attributes items scale with or require. Morrowind/Souls hybrid. */
