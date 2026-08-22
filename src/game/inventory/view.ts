@@ -85,6 +85,7 @@ const TAB_LABELS: Record<ItemCategory | "all", string> = {
 export const SLOT_LABELS: Record<EquipSlot, string> = {
   mainHand: "Weapon",
   offHand: "Shield",
+  ammo: "Arrows",
   head: "Head",
   chest: "Cuirass",
   hands: "Gauntlets",

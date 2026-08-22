@@ -1,5 +1,5 @@
 import type { AnimationState } from "../core/types";
-import type { AttackId, AttackSpec, WeaponClass } from "./types";
+import type { AttackId, AttackSpec, RangedStats, WeaponClass } from "./types";
 
 /**
  * What it is like to fight with a *kind* of weapon.
@@ -19,7 +19,7 @@ import type { AttackId, AttackSpec, WeaponClass } from "./types";
  * statted, but it swings with borrowed motion until that set is built. See
  * `docs/assets/animation-source-audit.md`.
  */
-export type MovesetId = "oneHanded" | "twoHanded";
+export type MovesetId = "oneHanded" | "twoHanded" | "bow";
 
 export type WeaponClassProfile = {
   id: WeaponClass;
@@ -51,6 +51,11 @@ export type WeaponClassProfile = {
   sheathSocket: string;
   /** Class-specific held-socket offset, on top of the rig convention. */
   heldRotation?: readonly [number, number, number, number];
+  /**
+   * Shooting profile, before the material scales it. Present on bows only, and
+   * the thing that makes a class a bow.
+   */
+  ranged?: RangedStats;
 };
 
 /**
@@ -125,11 +130,47 @@ export const WEAPON_CLASSES: Readonly<Record<WeaponClass, WeaponClassProfile>> =
     powerScale: 1.6, staminaScale: 1.45, stability: 0.45, physicalAbsorption: 0.85,
     sheathSocket: "WeaponBack",
   },
-  bow: {
-    id: "bow", label: "Bow", moveset: "twoHanded", twoHanded: true,
-    lengthMeters: 1.4, weightKg: 4, speedScale: 1.2, reachBonus: 0,
-    powerScale: 0.4, staminaScale: 0.8, stability: 0.2, physicalAbsorption: 0.3,
+  // Bows do not fight, they shoot: their melee numbers exist only so that a bow
+  // in hand is still a describable object. What a bow *does* is in `ranged`.
+  shortbow: {
+    id: "shortbow", label: "Hunting Bow", moveset: "bow", twoHanded: true,
+    lengthMeters: 1.25, weightKg: 1.4, speedScale: 1.2, reachBonus: 0,
+    powerScale: 0.35, staminaScale: 0.8, stability: 0.18, physicalAbsorption: 0.25,
     sheathSocket: "WeaponBow",
+    ranged: {
+      // ~65 lbf. A bow a hunter carries all day and can draw from a crouch.
+      peakDrawForceN: 289, powerStrokeMeters: 0.52, drawCurve: "recurve",
+      peakEfficiency: 0.94, virtualMassKg: 0.022,
+      drawSeconds: 1.5, nockSeconds: 1.2, releaseRecoverySeconds: 0.5,
+      drawStaminaPerSecond: 9, minimumReleaseFraction: 0.18,
+    },
+  },
+  longbow: {
+    id: "longbow", label: "Longbow", moveset: "bow", twoHanded: true,
+    lengthMeters: 1.75, weightKg: 1.9, speedScale: 1.2, reachBonus: 0,
+    powerScale: 0.4, staminaScale: 0.85, stability: 0.2, physicalAbsorption: 0.3,
+    sheathSocket: "WeaponBow",
+    ranged: {
+      // ~105 lbf, the middle of the surviving Mary Rose range.
+      peakDrawForceN: 467, powerStrokeMeters: 0.58, drawCurve: "linear",
+      peakEfficiency: 0.95, virtualMassKg: 0.031,
+      drawSeconds: 2.4, nockSeconds: 1.7, releaseRecoverySeconds: 0.7,
+      drawStaminaPerSecond: 14, minimumReleaseFraction: 0.2,
+    },
+  },
+  warbow: {
+    id: "warbow", label: "War Bow", moveset: "bow", twoHanded: true,
+    lengthMeters: 1.9, weightKg: 2.3, speedScale: 1.25, reachBonus: 0,
+    powerScale: 0.45, staminaScale: 0.95, stability: 0.22, physicalAbsorption: 0.32,
+    sheathSocket: "WeaponBow",
+    ranged: {
+      // 150 lbf over a 0.60 m power stroke: the anchor the whole model is
+      // calibrated against. With a 96 g war shaft it throws 53 m/s.
+      peakDrawForceN: 667, powerStrokeMeters: 0.6, drawCurve: "linear",
+      peakEfficiency: 0.95, virtualMassKg: 0.0391,
+      drawSeconds: 3.4, nockSeconds: 2.2, releaseRecoverySeconds: 0.9,
+      drawStaminaPerSecond: 21, minimumReleaseFraction: 0.22,
+    },
   },
   staff: {
     id: "staff", label: "Staff", moveset: "twoHanded", twoHanded: true,

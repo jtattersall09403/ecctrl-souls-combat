@@ -1,3 +1,4 @@
+import type { BowPhysics } from "../combat/ballistics";
 import type { AnimationState } from "../core/types";
 
 /**
@@ -15,6 +16,7 @@ import type { AnimationState } from "../core/types";
 export type EquipSlot =
   | "mainHand"
   | "offHand"
+  | "ammo"
   | "head"
   | "chest"
   | "hands"
@@ -23,7 +25,7 @@ export type EquipSlot =
   | "ring";
 
 export const EQUIP_SLOTS: readonly EquipSlot[] = [
-  "mainHand", "offHand", "head", "chest", "hands", "feet", "amulet", "ring",
+  "mainHand", "offHand", "ammo", "head", "chest", "hands", "feet", "amulet", "ring",
 ];
 
 export type DamageType = "physical" | "fire" | "frost" | "shock" | "magic" | "poison";
@@ -52,8 +54,17 @@ export type WeaponClass =
   | "warhammer"
   | "spear"
   | "halberd"
-  | "bow"
+  | "shortbow"
+  | "longbow"
+  | "warbow"
   | "staff";
+
+/** Bow classes, split out because they carry a `ranged` profile and no moveset. */
+export const BOW_CLASSES: readonly WeaponClass[] = ["shortbow", "longbow", "warbow"];
+
+export function isBowClass(id: WeaponClass) {
+  return BOW_CLASSES.includes(id);
+}
 
 export type ShieldClass = "buckler" | "roundShield" | "kiteShield" | "towerShield";
 
@@ -81,6 +92,11 @@ export type AttributeMap = Partial<Record<AttributeId, number>>;
 
 export type WeaponStats = {
   class: WeaponClass;
+  /**
+   * Present only on bows. Everything a shot needs is in here, measured rather
+   * than balanced — see `src/game/combat/ballistics.ts`.
+   */
+  ranged?: RangedStats;
   /** Encumbrance in kilograms; also the natural input to future poise/speed. */
   weightKg: number;
   /** Base damage per type, before an attack's motion value and scaling. */
@@ -96,6 +112,31 @@ export type WeaponStats = {
   /** What this weapon offers when it is the thing being guarded with. */
   guard: GuardProfile;
 };
+
+/**
+ * A bow's shooting profile: the physics, plus the handful of timings that turn
+ * physics into a cadence a player feels.
+ */
+export type RangedStats = BowPhysics & {
+  /** Seconds from string at rest to full draw, before player stats. */
+  drawSeconds: number;
+  /** Seconds spent nocking the next arrow before a draw can begin. */
+  nockSeconds: number;
+  /** Seconds of follow-through after a release. */
+  releaseRecoverySeconds: number;
+  /** Stamina per second while drawing and while holding at draw. */
+  drawStaminaPerSecond: number;
+  /**
+   * Fraction of full draw below which the string will not release at all.
+   * Physically it would; a bow that fires on the lightest tap is unusable.
+   */
+  minimumReleaseFraction: number;
+};
+
+/** Nock-to-nock seconds for one aimed shot at full draw, excluding aiming. */
+export function shotCycleSeconds(ranged: RangedStats) {
+  return ranged.nockSeconds + ranged.drawSeconds + ranged.releaseRecoverySeconds;
+}
 
 export type ShieldStats = {
   class: ShieldClass;

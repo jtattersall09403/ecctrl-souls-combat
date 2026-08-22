@@ -36,6 +36,7 @@ core, its stylesheet is not. See
 | [architecture/characters-and-races.md](architecture/characters-and-races.md) | The rig/race split, skin tint, beast tails, and biped slots |
 | [architecture/items-and-inventory.md](architecture/items-and-inventory.md) | Items from class x material, worn armour, and the inventory's three layers |
 | [architecture/movement-speed-tuning.md](architecture/movement-speed-tuning.md) | Where to edit travel speed vs animation playback speed for locomotion/dodges |
+| [research/archery-ballistics.md](research/archery-ballistics.md) | How bows are modelled, and the real-world figures that calibrate them |
 | [assets/rebuilding-the-character.md](assets/rebuilding-the-character.md) | Rebuild the character GLB from Skyrim source |
 | [assets/animation-source-audit.md](assets/animation-source-audit.md) | Selected Skyrim clips, external-source provenance, and audition results |
 | [validation/animation-recordings.md](validation/animation-recordings.md) | When to run the animation probes vs. record video for the owner to review |

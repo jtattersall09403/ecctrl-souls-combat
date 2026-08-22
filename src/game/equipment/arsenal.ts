@@ -49,7 +49,9 @@ const PIPELINE_CLASS_TO_WEAPON_CLASS: Readonly<Record<string, WeaponClass>> = {
   warhammer: "warhammer",
   spear: "spear",
   halberd: "halberd",
-  bow: "bow",
+  shortbow: "shortbow",
+  longbow: "longbow",
+  warbow: "warbow",
   staff: "staff",
 };
 
